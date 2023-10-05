@@ -1,0 +1,38 @@
+local base = (import 'base.jsonnet');
+
+base + {
+    train_args+:{
+        fp16: false,
+        bf16: true,
+        dataloader_drop_last: true,
+        dataloader_num_workers: 4,
+        dataloader_pin_memory: true,
+        #deepspeed=None,
+        do_eval: true,
+        do_train: true,
+        evaluation_strategy: "no",
+        fsdp: "full_shard auto_wrap",
+        fsdp_transformer_layer_cls_to_wrap: 'LlamaDecoderLayer',
+        #full_determinism: true,
+        gradient_accumulation_steps: 1,
+        gradient_checkpointing: true,
+        #half_precision_backend=auto,
+        learning_rate: 5e-05,
+        log_on_each_node: false,
+        logging_steps: 1,
+        lr_scheduler_type: "cosine",
+        max_grad_norm: 1.0,
+        num_train_epochs: 1,
+        optim: "adamw_torch",
+        per_device_eval_batch_size: 8,
+        per_device_train_batch_size: 8,
+        #resume_from_checkpoint=None,
+        save_steps: 1000,
+        save_strategy: "steps",
+        save_total_limit: 1,
+        torch_compile: false,
+        warmup_ratio: 0.0,
+        weight_decay: 1e-5,
+        },
+}
+
