@@ -54,19 +54,12 @@ def construct_quant_layer(weight_quantize_module: Quantizer, layer: torch.nn.Mod
 
 class Base_Model(Registrable):
     def __init__(self, weight_quantize_module: Lazy[Quantizer], exp_name: str = None,
-                 save_path: str = './save', device: str = 'cuda'):
+                 save_path: str = './save'):
         #super().__init__()
         self.weight_quantize_module = weight_quantize_module
         self.exp_name = exp_name
         self.save_path = save_path
-        if not torch.cuda.is_available() and 'cuda' in device:
-            logging.warning('CUDA not available')
-            self.device = torch.device('cpu')
-        else:
-            self.device = torch.device(device)
-
-        # self._model2quant()
-        # self.to(self.device)
+        self._model2quant()
 
     def _model2quant(self):
         make_quant_layer(self.weight_quantize_module, self, nn.Linear)

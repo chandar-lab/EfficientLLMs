@@ -19,7 +19,7 @@ from transformers import Trainer
 class Runtime(FromParams):
     def __init__(self, seed: int, _project_name: str, _entity: str, model: Lazy[Base_Model],
                  train_args: Lazy[MyTrainingArguments], dataset: Lazy[Dataset], _save_path: str = './save',
-                 _wandb_logs: bool = False, _resume: str = None):
+                 _wandb_logs: bool = False, _resume: str = None, _device: str = 'cuda'):
         self.model = model
         self.train_args = train_args
         self.trainer = None
@@ -31,6 +31,7 @@ class Runtime(FromParams):
         self.wandb_logs = _wandb_logs
         self.exp_name = None
         self.resume = _resume
+        self.device = _device
         os.makedirs(_save_path, exist_ok=True)
 
     def setup(self, EXPERIMENT_NAME: str, cfg: Dict[str, Any]):
@@ -39,8 +40,8 @@ class Runtime(FromParams):
         output_dir = os.path.join(self.save_path, EXPERIMENT_NAME)
         os.makedirs(output_dir, exist_ok=True)
         if self.wandb_logs:
-            os.eviron["WANDB_PROJECT"] = self.project_name  # log to your project
-            os.eviron["WANDB_LOG_MODEL"] = "all"  # log your models
+            os.environ["WANDB_PROJECT"] = self.project_name  # log to your project
+            os.environ["WANDB_LOG_MODEL"] = "all"  # log your models
             self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
                                                         logging_dir=output_dir, run_name=EXPERIMENT_NAME, report_to=['wandb'])
         else:
@@ -49,6 +50,11 @@ class Runtime(FromParams):
                                                         report_to=None)
 
         model = self.model.construct(exp_name=self.exp_name, save_path=output_dir)
+        if not torch.cuda.is_available() and 'cuda' in self.device:
+            logging.warning('CUDA not available')
+            self.device = torch.device('cpu')
+        else:
+            self.device = torch.device(self.device)
         self.dataset = self.dataset.construct()
         tokenized_datasets = self.dataset.creat_tokenized_datasets()
         data_collator = self.dataset.creat_data_collator()

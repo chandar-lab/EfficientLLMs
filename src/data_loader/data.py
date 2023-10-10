@@ -1,19 +1,23 @@
 import os
-from common import FromParams
+from common import FromParams, Registrable
 
 from datasets import load_dataset, DatasetDict
 from transformers import DataCollatorForLanguageModeling
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
+from pathlib import Path
 
 
-class Dataset(FromParams):
+class Dataset(Registrable):
+    pass
+
+
+@Dataset.register("openwebtext")
+class OpenWebText(Dataset):
     def __init__(self,
-                 dataset_name: str,
                  tokenizer_name: str,
-                 dataset_config_name: str = None,
+                 validation_size: float = 0.0005,
                  num_proc: int = 1,
-                 padding: str = 'max_length',
                  max_length: int = 128,
                  train_batch_size: int = 2,
                  validation_batch_size: int = 2,
@@ -21,12 +25,12 @@ class Dataset(FromParams):
                  shuffle: bool = True,
                  pin_memory: bool = True,
                  ):
-        self.dataset_name = dataset_name
-        self.dataset_config_name = dataset_config_name
+        self.dataset_name = 'openwebtext'
+        self.dataset_config_name = None
         self.tokenizer_name = tokenizer_name
         self.num_proc = num_proc
-        self.padding = padding
         self.max_length = max_length
+        self.validation_size = validation_size
 
         self.train_batch_size = train_batch_size
         self.valid_batch_size = validation_batch_size
@@ -38,9 +42,15 @@ class Dataset(FromParams):
         if os.environ.get('HF_HOME') is not None:
             self.data_root = os.path.join(os.environ.get('HF_HOME'), 'datasets')
         else:
-            raise "didn't find HF HOME directory"
+            hf_home = Path.home() / "scratch" / "hf_home"  # change this to your own path
+            hf_home.mkdir(parents=True, exist_ok=True)
+            os.environ["HF_HOME"] = str(hf_home)
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name, use_fast=True)
+        if tokenizer.pad_token is None:
+            # print("Add padding token")
+            self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            self.tokenizer.padding_side = "right"
 
     def creat_tokenized_datasets(self):
 
@@ -49,7 +59,6 @@ class Dataset(FromParams):
                 element["text"],
                 truncation=True,
                 max_length=self.max_length,
-                padding=self.padding,  # Pad shorter sequences to the max_length
                 return_overflowing_tokens=True,
                 return_length=True,
             )
@@ -60,13 +69,16 @@ class Dataset(FromParams):
             return {"input_ids": input_batch}
 
         split_dataset = self._creat_dataset()
-        tokenized_datasets = split_dataset.map(tokenize, batched=True,
-                                               remove_columns=split_dataset["train"].column_names, num_proc=self.num_proc)
+        tokenized_datasets = split_dataset.map(tokenize, batched=True, remove_columns=['text'],
+                                               desc="tokenizing the splits", num_proc=self.num_proc)
         return tokenized_datasets
 
     def _creat_dataset(self, split: str = 'train'):
-        # split_dataset = load_dataset("wikitext", "wikitext-2-v1", num_proc=self.num_proc)
-        split_dataset = load_dataset(self.dataset_name, self.dataset_config_name, num_proc=self.num_proc)
+        dataset = load_dataset(self.dataset_name, num_proc=self.num_proc)
+        # owt by default only contains the 'train' split, so create a test split
+        split_dataset = dataset["train"].train_test_split(test_size=self.validation_size,
+                                                          shuffle=self.shuffle)  # TODO: should we set seed here?
+        split_dataset["validation"] = split_dataset.pop('test')  # rename the test split to val
         return split_dataset
 
     def creat_data_collator(self):
@@ -78,15 +90,12 @@ class Dataset(FromParams):
         data_collator = self.creat_data_collator()
         if split == 'train':
             dataloader = DataLoader(
-                tokenized_datasets["train"], shuffle=self.shuffle, batch_size=self.train_batch_size, collate_fn=data_collator
+                tokenized_datasets["train"], shuffle=self.shuffle, batch_size=self.train_batch_size,
+                collate_fn=data_collator
             )
         elif split == 'val':
             dataloader = DataLoader(
                 tokenized_datasets["validation"], batch_size=self.valid_batch_size, collate_fn=data_collator
-            )
-        elif split == 'test':
-            dataloader = DataLoader(
-                tokenized_datasets["test"], batch_size=self.test_batch_size, collate_fn=data_collator
             )
         else:
             raise "Didn't find split"
@@ -99,16 +108,15 @@ if __name__ == "__main__":
     dataset = Dataset.from_params(
         Params(
             {
-                "dataset_name": "openwebtext",
-                "dataset_config_name": None,
+                "type": "openwebtext",
                 "tokenizer_name": "gpt2",
                 "max_length": 1024,
                 "train_batch_size": 8,  # per gpu
                 "validation_batch_size": 4,
-                "num_workers": 4,
+                "num_proc": 4,
                 "shuffle": True,
                 "pin_memory": True,
-                "padding": 'max_length',
+                "validation_size": 0.0005,
             }
         )
     )

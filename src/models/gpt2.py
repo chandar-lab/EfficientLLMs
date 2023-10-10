@@ -1,18 +1,36 @@
-from transformers import GPT2Config
-from flash_attn.models.gpt import GPTLMHeadModel
+#from flash_attn.models.gpt import GPTLMHeadModel
+from transformers.models.gpt2 import GPT2LMHeadModel
 from typing import Optional, Dict
 from models import Base_Model
+from transformers import GPT2Config
+from common import FromParams
 
+
+class MyGPT2Config(GPT2Config, FromParams):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
 @Base_Model.register("gpt2")
 class CausalGPT2(GPT2LMHeadModel, Base_Model):
     def __init__(
             self,
-            config: Optional[GPT2Config] = None,
+            config: Optional[MyGPT2Config] = None,
+            use_flash_attn: bool = True,
+            fused_bias_fc: bool = True,
+            fused_mlp: bool = True,
+            fused_dropout_add_ln: bool = True,
+            residual_in_fp32: bool = True,
+            pad_vocab_size_multiple: int = 8,
             **kwargs,
     ):
         assert config is not None
-        # super().__init__(config)
+        # for optimized gpt2
+        #config.use_flash_attn = use_flash_attn
+        #config.fused_bias_fc = fused_bias_fc
+        #config.fused_mlp = fused_mlp
+        #config.fused_dropout_add_ln = fused_dropout_add_ln
+        #config.residual_in_fp32 = residual_in_fp32
+        #config.pad_vocab_size_multiple = pad_vocab_size_multiple
         GPT2LMHeadModel.__init__(self, config)
         Base_Model.__init__(self, **kwargs)
 
