@@ -6,7 +6,7 @@ base + {
         use_flash_attn: true,
         fused_bias_fc: true,
         fused_mlp: true,
-        fused_dropout_add_ln: true,
+        fused_dropout_add_ln: false,
         residual_in_fp32: true,
         pad_vocab_size_multiple: 8,
         weight_quantize_module: {},

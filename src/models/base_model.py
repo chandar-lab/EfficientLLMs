@@ -59,7 +59,8 @@ class Base_Model(Registrable):
         self.weight_quantize_module = weight_quantize_module
         self.exp_name = exp_name
         self.save_path = save_path
-        self._model2quant()
+        if len(weight_quantize_module._params) > 0:
+            self._model2quant()
 
     def _model2quant(self):
         make_quant_layer(self.weight_quantize_module, self, nn.Linear)

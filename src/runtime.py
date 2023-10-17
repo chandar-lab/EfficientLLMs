@@ -44,6 +44,7 @@ class Runtime(FromParams):
             os.environ["WANDB_LOG_MODEL"] = "all"  # log your models
             self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
                                                         logging_dir=output_dir, run_name=EXPERIMENT_NAME, report_to=['wandb'])
+            wandb.config = cfg
         else:
             self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
                                                         logging_dir=output_dir, run_name=EXPERIMENT_NAME,
@@ -64,6 +65,7 @@ class Runtime(FromParams):
                                train_dataset=tokenized_datasets["train"],
                                eval_dataset=tokenized_datasets["validation"],
                                data_collator=data_collator)
+        self.trainer.resume_from_checkpoint = True
 
         self.setup_logging(log_path=os.path.join(self.save_path, EXPERIMENT_NAME))
 
@@ -92,8 +94,18 @@ class Runtime(FromParams):
         file_handler.setFormatter(formatter)
         logging.getLogger('').addHandler(file_handler)
 
+    def _checkpoint_is_available(self):
+        items = os.listdir(self.trainer.args.output_dir)
+        checkpoint_found = any(
+            item.startswith("checkpoint") and os.path.isdir(os.path.join(self.trainer.args.output_dir, item)) for item in items)
+        return checkpoint_found
+
     def train(self):
-        train_result = self.trainer.train()
+        if self._checkpoint_is_available():
+            logging.info(f'load from checkpoint and resume training')
+            train_result = self.trainer.train(resume_from_checkpoint=True)
+        else:
+            train_result = self.trainer.train()
         self.trainer.save_state()
         state_dict = self.trainer.model.state_dict()
         if self.train_args.should_save:

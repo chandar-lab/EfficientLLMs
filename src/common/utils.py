@@ -82,9 +82,13 @@ def creat_unique_experiment_name(config: Dict[str, Any]) -> str:
     _config = copy.deepcopy(config)
     _config = remove_useless_key(_config)
     model_arch = _config['model']['type']
+    use_quantizer = len(_config['model']['weight_quantize_module'].keys())>0
     _config = unroll_configs(_config)
     # Convert the unrolled dictionary to a JSON string and hash it
     unrolled_json = json.dumps(_config, sort_keys=True)
     hash_name = hashlib.md5(unrolled_json.encode()).hexdigest()[:8]
-    exp_name = f"{model_arch}_{_config['model_weight_quantize_module_N_bits']}bit_{_config['model_weight_quantize_module_type']}_{hash_name}"
+    if use_quantizer:
+        exp_name = f"{model_arch}_{_config['model_weight_quantize_module_N_bits']}bit_{_config['model_weight_quantize_module_type']}_{hash_name}"
+    else:
+        exp_name = f"{model_arch}_{hash_name}"
     return exp_name
