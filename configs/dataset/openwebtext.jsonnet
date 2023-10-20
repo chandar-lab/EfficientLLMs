@@ -8,6 +8,5 @@ base + {
         num_proc: 4,
         val_split_seed: 2345,
         validation_size: 0.0005,
-        add_eos: true,
         },
 }

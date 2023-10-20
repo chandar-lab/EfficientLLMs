@@ -1,4 +1,5 @@
 import os
+import sys
 import random
 import numpy as np
 import torch
@@ -14,7 +15,10 @@ import math
 
 from train import MyTrainingArguments
 from transformers import Trainer
+import transformers
+import datasets
 
+logger = logging.getLogger(__name__)
 
 class Runtime(FromParams):
     def __init__(self, seed: int, _project_name: str, _entity: str, model: Lazy[Base_Model],
@@ -46,6 +50,7 @@ class Runtime(FromParams):
                                                         logging_dir=output_dir, run_name=EXPERIMENT_NAME, report_to=['wandb'])
             wandb.config = cfg
         else:
+            os.environ["WANDB_DISABLED"] = "true"
             self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
                                                         logging_dir=output_dir, run_name=EXPERIMENT_NAME,
                                                         report_to=None)
@@ -58,16 +63,17 @@ class Runtime(FromParams):
             self.device = torch.device(self.device)
         self.dataset = self.dataset.construct()
         tokenized_datasets = self.dataset.creat_tokenized_datasets()
-        data_collator = self.dataset.creat_data_collator()
+        # data_collator = self.dataset.creat_data_collator()
         self.trainer = Trainer(model=model,
-                               tokenizer=self.dataset.tokenizer,
+                               # tokenizer=self.dataset.tokenizer,
+                               # data_collator=data_collator,
                                args=self.train_args,
                                train_dataset=tokenized_datasets["train"],
-                               eval_dataset=tokenized_datasets["validation"],
-                               data_collator=data_collator)
-        self.trainer.resume_from_checkpoint = True
-
-        self.setup_logging(log_path=os.path.join(self.save_path, EXPERIMENT_NAME))
+                               eval_dataset=tokenized_datasets["validation"])
+        self.setup_logging(log_path=os.path.join(self.save_path, EXPERIMENT_NAME), training_args=self.train_args)
+        train_dl = self.trainer.get_train_dataloader()
+        x = next(iter(train_dl))['input_ids']
+        print("train data loader:", len(train_dl), 'shape:', x.shape)
 
         jsonnet_string = json.dumps(cfg, indent=4)
         save_path = os.path.join(self.save_path, self.exp_name, 'config.jsonnet')
@@ -86,13 +92,31 @@ class Runtime(FromParams):
             torch.cuda.manual_seed_all(self.seed)
 
     @staticmethod
-    def setup_logging(log_path):
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-        file_handler = logging.FileHandler(os.path.join(log_path, 'logfile.log'))
-        file_handler.setLevel(logging.INFO)  # Set the desired logging level
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(formatter)
-        logging.getLogger('').addHandler(file_handler)
+    def setup_logging(log_path, training_args):
+
+        # Setup logging
+        logging.basicConfig(
+            format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+            datefmt="%m/%d/%Y %H:%M:%S",
+            handlers=[logging.StreamHandler(sys.stdout)],
+        )
+
+        if training_args.should_log:
+            # The default of training_args.log_level is passive, so we set log level at info here to have that default.
+            transformers.utils.logging.set_verbosity_info()
+
+        log_level = training_args.get_process_log_level()
+        logger.setLevel(log_level)
+        datasets.utils.logging.set_verbosity(log_level)
+        transformers.utils.logging.set_verbosity(log_level)
+        transformers.utils.logging.enable_default_handler()
+        transformers.utils.logging.enable_explicit_format()
+        # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        # file_handler = logging.FileHandler(os.path.join(log_path, 'logfile.log'))
+        # file_handler.setLevel(logging.INFO)  # Set the desired logging level
+        # formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        # file_handler.setFormatter(formatter)
+        # logging.getLogger('').addHandler(file_handler)
 
     def _checkpoint_is_available(self):
         items = os.listdir(self.trainer.args.output_dir)
@@ -128,54 +152,3 @@ class Runtime(FromParams):
 
         self.trainer.log_metrics("eval", metrics)
         self.trainer.save_metrics("eval", metrics)
-
-    # def load_model(self):
-    #     if self.resume is not None:
-    #         # load checkpoint to resume training
-    #         model_path = os.path.join(self.save_path, self.exp_name, f'{self.resume}')
-    #         logging.info(f"=> loading checkpoint from: {model_path}")
-    #         if os.path.exists(model_path):
-    #             checkpoint = torch.load(model_path, map_location=self.model.device)
-    #             self.model.load_state_dict(checkpoint['model_state_dict'])
-    #             self.trainer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    #             self.trainer.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    #             resume_epoch = checkpoint['epoch']
-    #             return resume_epoch
-    #         else:
-    #             logging.warning(f"model_path: {model_path} didn't exist")
-    #             raise "path to model didn't exist."
-    #     else:
-    #         model_path = os.path.join(self.save_path, self.exp_name, 'model_checkpoint.pth')
-    #         logging.info(f"=> loading checkpoint from: {model_path}")
-    #         if os.path.exists(model_path):
-    #             loaded_state_dict = torch.load(model_path, map_location=self.model.device)
-    #             network_kvpair = self.model.state_dict()
-    #             for key in loaded_state_dict.keys():
-    #                 network_kvpair[key] = loaded_state_dict[key]
-    #             self.model.load_state_dict(network_kvpair)
-    #         else:
-    #             logging.warning(f"model_path: {model_path} didn't exist")
-    #             raise "path to model didn't exist."
-    #
-    # def evaluate(self):
-    #     train_loader, test_loader, valid_loader, calibration_loader = self.dataset.build()
-    #     test_loss, test_acc = evaluate(self.model, test_loader)
-    #     if self.wandb_logs:
-    #         wandb.log({"test_accuracy": test_acc, "test_loss": test_loss})
-    #     logging.info(f"test accuracy: {test_acc}%, test loss: {test_loss}")
-    #
-    # def load_and_evaluate(self):
-    #     self.load_model()
-    #     train_loader, test_loader, valid_loader, calibration_loader = self.dataset.build()
-    #     test_loss, test_acc = evaluate(self.model, test_loader)
-    #     if self.wandb_logs:
-    #         wandb.log({"test_accuracy": test_acc, "test_loss": test_loss})
-    #     logging.info(f"test accuracy: {test_acc}%, test loss: {test_loss}")
-    #
-    # def resume_and_train(self):
-    #     self.trainer.build(self.model)
-    #     resume_epoch = self.load_model()
-    #     if hasattr(self.dataset, 'use_train'):
-    #         self.dataset.use_train = True
-    #     train_loader, test_loader, valid_loader, calibration_loader = self.dataset.build()
-    #     self.trainer.fit(self.model, train_loader, valid_loader, resume_epoch=resume_epoch)

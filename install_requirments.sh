@@ -22,8 +22,8 @@ fi
 mkdir -p $WORK_DIR
 
 # Load modules
-module load gcc/9.3.0
-module load python/3.10
+#module load gcc/9.3.0
+module load python/3.8
 module load cuda/11.8
 
 # Create environment
@@ -42,13 +42,14 @@ pip install 'fire==0.4.0'
 pip install 'sentencepiece==0.1.96'
 pip install 'nltk==3.6.7'
 pip install 'base58==2.1.1'
-pip install 'datasets==1.18.2'
-pip install 'transformers==4.16.2'
-pip install 'wandb==0.12.10'
+pip install 'datasets==2.14.5'
+pip install 'transformers==4.34'
+pip install 'wandb==0.15.12'
 pip install 'dill==0.3.4'
 pip install 'scipy==1.8.0'
-pip install 'matplotlib==3.8.0'
+pip install 'matplotlib==3.7.0'
 pip install 'accelerate<0.21.0,>=0.20.0'
+pip install 'tiktoken==0.5.1'
 pip install wheel
 ### tiktoken PyYAML
 
