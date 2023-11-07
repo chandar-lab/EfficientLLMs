@@ -158,3 +158,24 @@ if __name__ == "__main__":
         )
     )
     print(model)
+
+
+"""
+For gp2-FlashAttn mode:
+
+model.transformer.layers[i] --> flash_attn.modules.block.Block
+    mixer --> MHA
+        mixer.Wqkv --> FusedDense
+        mixer.inner_attn --> FlashSelfAttention
+        mixer.inner_cross_attn --> FlashCrossAttention
+        mixer.out_proj --> FusedDense
+    norm1 --> LayerNorm
+    mlp --> FusedMLP
+        mlp.fc1 --> Linear
+        mlp.fc2 --> Linear
+    norm2 --> LayerNorm
+    
+The problem is FusedDense layer is only implemented for bf16 or fp16. So for quantizing weight it's better to 
+set `fused_bias_fc` to False
+
+"""

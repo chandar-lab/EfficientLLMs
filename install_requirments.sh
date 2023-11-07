@@ -10,6 +10,7 @@ set -e
 set -v
 
 FLASH_ATTN_VERSION='2.3.2'
+DeepSpeed_VERSION='0.11.1'
 export MAX_JOBS=4
 
 # Default config
@@ -48,10 +49,9 @@ pip install 'wandb==0.15.12'
 pip install 'dill==0.3.4'
 pip install 'scipy==1.8.0'
 pip install 'matplotlib==3.7.0'
-pip install 'accelerate<0.21.0,>=0.20.0'
+pip install 'accelerate==0.23.0'
 pip install 'tiktoken==0.5.1'
-pip install wheel
-### tiktoken PyYAML
+pip install wheel setuptools py-cpuinfo
 
 # Clone and install flash-attention v2
 NV_CC="8.0;8.6" # flash-attention-v2 and exllama_kernels are anyway limited to CC of 8.0+
@@ -68,3 +68,20 @@ pushd csrc/rotary && pip install .
 popd  # Exit from csrc/rotary
 
 popd  # Exit from flash-attention
+
+
+# Clone and install DeepSpeed
+DeepSpeed_DIR="$WORK_DIR/deep_speed"
+git clone https://github.com/microsoft/DeepSpeed/ "$DeepSpeed_DIR"
+cd "$DeepSpeed_DIR"
+git checkout "tags/v$DeepSpeed_VERSION"
+rm -rf build
+TORCH_CUDA_ARCH_LIST="$NV_CC" DS_BUILD_FUSED_ADAM=1 DS_BUILD_FUSED_LION=1 DS_BUILD_QUANTIZER=1 \
+pip install . --global-option="build_ext" --global-option="-j4" --no-cache -v \
+--disable-pip-version-check 2>&1 | tee build.log
+
+# save binary wheel to install on other machines
+#TORCH_CUDA_ARCH_LIST="$NV_CC" DS_BUILD_FUSED_ADAM=1 DS_BUILD_UTILS=1 DS_BUILD_FUSED_LION=1 DS_BUILD_QUANTIZER=1 \
+#python setup.py build_ext -j8 bdist_wheel
+#pip install dist/*.whl --no-deps
+#cp dist/*.whl $SCRATCH

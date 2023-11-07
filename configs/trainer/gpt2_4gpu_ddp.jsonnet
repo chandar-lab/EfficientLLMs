@@ -4,6 +4,7 @@ base + {
     train_args+:{
         fp16: false,
         bf16: true,
+        bf16_full_eval: true,
         dataloader_drop_last: true,
         dataloader_num_workers: 4,
         dataloader_pin_memory: true,
@@ -12,7 +13,7 @@ base + {
         do_train: true,
         evaluation_strategy: "steps",
         eval_steps: 100,
-        gradient_accumulation_steps: 8,
+        gradient_accumulation_steps: 2,
         gradient_checkpointing: false,
         #half_precision_backend=auto,
         learning_rate: 6e-4,

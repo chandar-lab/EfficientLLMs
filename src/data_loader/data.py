@@ -6,7 +6,6 @@ from datasets import load_dataset, DatasetDict
 from transformers import DataCollatorForLanguageModeling, AutoTokenizer
 from transformers.testing_utils import CaptureLogger
 from torch.utils.data import DataLoader
-import tiktoken
 from pathlib import Path
 import numpy as np
 from itertools import chain

@@ -1,6 +1,6 @@
 {
   seed: 42,
-  _project_name: 'Efficient_LLM',
+  _project_name: 'ablation study',
   _entity: 'kmchiti',
   _save_path: './save',
   _wandb_logs: 1,

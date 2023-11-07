@@ -17,6 +17,8 @@ from train import MyTrainingArguments
 from transformers import Trainer
 import transformers
 import datasets
+from transformers.integrations.integration_utils import WandbCallback
+
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,6 @@ class Runtime(FromParams):
             os.environ["WANDB_LOG_MODEL"] = "all"  # log your models
             self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
                                                         logging_dir=output_dir, run_name=EXPERIMENT_NAME, report_to=['wandb'])
-            wandb.config = cfg
         else:
             os.environ["WANDB_DISABLED"] = "true"
             self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
@@ -56,6 +57,9 @@ class Runtime(FromParams):
                                                         report_to=None)
 
         model = self.model.construct(exp_name=self.exp_name, save_path=output_dir)
+        if self.train_args.bf16:
+            print("change model to bf16.")
+            model = model.to(dtype=torch.bfloat16, device=self.train_args.device)
         if not torch.cuda.is_available() and 'cuda' in self.device:
             logging.warning('CUDA not available')
             self.device = torch.device('cpu')
@@ -71,15 +75,18 @@ class Runtime(FromParams):
                                train_dataset=tokenized_datasets["train"],
                                eval_dataset=tokenized_datasets["validation"])
         self.setup_logging(log_path=os.path.join(self.save_path, EXPERIMENT_NAME), training_args=self.train_args)
-        train_dl = self.trainer.get_train_dataloader()
-        x = next(iter(train_dl))['input_ids']
-        print("train data loader:", len(train_dl), 'shape:', x.shape)
+        if self.wandb_logs:
+            # init wandb callback and update the config
+            for callback in self.trainer.callback_handler.callbacks:
+                if isinstance(callback, WandbCallback):
+                    callback.setup(self.trainer.args, self.trainer.state, self.trainer.model)
+                    callback._wandb.config.update(cfg)
 
         jsonnet_string = json.dumps(cfg, indent=4)
         save_path = os.path.join(self.save_path, self.exp_name, 'config.jsonnet')
         with open(save_path, 'w') as jsonnet_file:
             jsonnet_file.write(jsonnet_string)
-        logging.info(f'configuration file saved at: {save_path}')
+        logger.info(f'configuration file saved at: {save_path}')
 
     def set_seed(self):
         torch.use_deterministic_algorithms(True)
@@ -111,12 +118,11 @@ class Runtime(FromParams):
         transformers.utils.logging.set_verbosity(log_level)
         transformers.utils.logging.enable_default_handler()
         transformers.utils.logging.enable_explicit_format()
-        # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-        # file_handler = logging.FileHandler(os.path.join(log_path, 'logfile.log'))
-        # file_handler.setLevel(logging.INFO)  # Set the desired logging level
-        # formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        # file_handler.setFormatter(formatter)
-        # logging.getLogger('').addHandler(file_handler)
+
+        file_handler = logging.FileHandler(os.path.join(log_path, 'logfile.log'))
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s", "%m/%d/%Y %H:%M:%S"))
+        logger.addHandler(file_handler)
 
     def _checkpoint_is_available(self):
         items = os.listdir(self.trainer.args.output_dir)

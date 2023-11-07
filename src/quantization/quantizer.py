@@ -111,12 +111,14 @@ class _Clamp_MAD(_Clamp):
 
 
 class Quantizer(torch.nn.Module, Registrable):
-    def __init__(self, N_bits: int = 4, signed: bool = True):
+    def __init__(self, N_bits: int = 4, signed: bool = True, granularity: str = 'per-tensor'):
         super().__init__()
         self.N_bits = N_bits
         self.signed = signed
         self.max_range = 0.
         self.min_range = 0.
+        assert granularity in ['per-tensor', 'per-column', 'per-token']
+        self.granularity = granularity
         if self.signed:
             self.Qn = - 2 ** (self.N_bits - 1)
             self.Qp = 2 ** (self.N_bits - 1) - 1
@@ -156,7 +158,16 @@ class Normal(Quantizer):
         self.zero_point = torch.tensor(0.)
 
     def linear_quantize(self, input: torch.tensor):
-        self.step_size = (input.abs().max() / (2 ** (self.N_bits - 1))).detach()
+        if self.granularity == 'per-tensor':
+            self.step_size = (input.abs().max() / (2 ** (self.N_bits - 1))).detach()
+        elif self.granularity == 'per-column':
+            self.step_size = (input.abs().max(dim=-1, keepdim=True)[0] / (2 ** (self.N_bits - 1))).detach()
+        elif self.granularity == 'per-token':
+            # TODO: complete per token quantization
+            raise NotImplementedError
+        else:
+            raise NotImplementedError
+
         x = torch.clamp((input / self.step_size) - self.zero_point, self.Qn, self.Qp)
         #x = round_pass(x)
         x = (x.round() - (input / self.step_size)).detach() + (input / self.step_size)
@@ -258,67 +269,5 @@ class WCAT(Quantizer):
     def monitor_ranges(self):
         return {'max_weight': self.max_range, 'min_weight': self.min_range,
                 'range_pos': self.q_range.item(), 'range_neg': (-self.q_range).item()}
-
-
-@Quantizer.register("wclip")
-class WClip(Quantizer):
-    def __init__(self, wclip: float = 0.1, **kwargs):
-        super().__init__(**kwargs)
-        self.alpha = nn.Parameter(torch.tensor(wclip), requires_grad=False)
-        self.step_size = torch.tensor(1.)
-        self.zero_point = torch.tensor(0.)
-
-    def linear_quantize(self, input: torch.tensor):
-
-        x = torch.clamp(input, min=-self.alpha.detach(), max=self.alpha.detach())
-        if self.signed:
-            self.step_size = self.alpha.detach() / (2 ** (self.N_bits - 1))
-        else:
-            self.step_size = self.alpha.detach() / (2 ** self.N_bits - 1)
-        x_int = round_pass((x / self.step_size) - self.zero_point)
-        x_clip = torch.clamp(x_int, self.Qn, self.Qp)
-        return (x_clip - x_int).detach() + x_int
-
-    def linear_dequantize(self, input: torch.tensor):
-        return (input + self.zero_point) * self.step_size
-
-    def _init_q_params(self, input: torch.tensor):
-        pass
-
-    def monitor_ranges(self):
-        return {'max_weight': self.max_range, 'min_weight': self.min_range}
-
-@Quantizer.register("plclip")
-class PLClip(Quantizer):
-    def __init__(self, plclip: float = 0.1, **kwargs):
-        super().__init__(**kwargs)
-        self.plclip = plclip
-        self.alpha = nn.Parameter(torch.tensor(plclip), requires_grad=False)
-        self.step_size = torch.tensor(1.)
-        self.zero_point = torch.tensor(0.)
-
-    def linear_quantize(self, input: torch.tensor):
-
-        x = torch.clamp(input, min=-self.alpha.detach(), max=self.alpha.detach())
-        if self.signed:
-            self.step_size = self.alpha.detach() / (2 ** (self.N_bits - 1))
-        else:
-            self.step_size = self.alpha.detach() / (2 ** self.N_bits - 1)
-        x_int = round_pass((x / self.step_size) - self.zero_point)
-        x_clip = torch.clamp(x_int, self.Qn, self.Qp)
-        return (x_clip - x_int).detach() + x_int
-
-    def linear_dequantize(self, input: torch.tensor):
-        return (input + self.zero_point) * self.step_size
-
-    def set_alpha(self, adapted_alpha):
-        self.alpha.data = torch.tensor(adapted_alpha).to(self.alpha.device)
-
-    def _init_q_params(self, input: torch.tensor):
-        pass
-
-    def monitor_ranges(self):
-        return {'max_weight': self.max_range, 'min_weight': self.min_range,
-                'range_pos': self.alpha.item(), 'range_neg': (-self.alpha).item()}
 
 
