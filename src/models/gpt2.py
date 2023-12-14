@@ -1,6 +1,8 @@
-from flash_attn.models.gpt import GPTLMHeadModel
-from flash_attn.utils.distributed import all_gather_raw
-from einops import rearrange
+try:
+    from flash_attn.models.gpt import GPTLMHeadModel
+except ImportError:
+    from transformers.models.gpt2 import GPT2LMHeadModel as GPTLMHeadModel
+
 try:
     from flash_attn.ops.fused_dense import ColumnParallelLinear
 except ImportError:

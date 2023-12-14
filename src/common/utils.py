@@ -19,8 +19,10 @@ def load_configs(config_files_names: str) -> Dict[str, Any]:
     jsonnet_str = "+".join([f'(import "{f}")' for f in filenames])
     json_str = _jsonnet.evaluate_snippet("snippet", jsonnet_str)
     config: Dict[str, Any] = json.loads(json_str)
-    if "quantizer" in config.keys():
-        config['model']['weight_quantize_module'] = config.pop('quantizer')
+    if "weight_quantizer" in config.keys():
+        config['model']['weight_quantize_module'] = config.pop('weight_quantizer')
+    if "act_quantizer" in config.keys():
+        config['model']['act_quantize_module'] = config.pop('act_quantizer')
 
     return config
 
@@ -67,6 +69,64 @@ def unroll_configs(cfg: Dict[str, Any], parent_key='', sep='_') -> Dict[str, Any
             items[new_key] = value
     return items
 
+
+def create_quant_config_name(w_cfg: dict, a_cfg: dict, g_cfg: dict = None, s_cfg: dict = None):
+    """
+
+    Args:
+        w_cfg: quantization config for weights
+        a_cfg: quantization config for activations
+        g_cfg: quantization config for gradients
+        s_cfg: quantization config for optimizer states
+
+    Returns:
+
+    """
+    def format_quantizer_info(cfg, name_prefix):
+        bit = cfg['N_bits']
+        g = '_' + str(cfg['granularity']).replace('-', '_')
+        qtype = '' if cfg['type'] == 'normal' else '_' + str(cfg['type']).replace('-', '_')
+        sym = '_sym' if cfg['symmetric'] else '_asym'
+        return f'{name_prefix}{bit}{qtype}{sym}{g}'
+
+    def format_quantizer_info_multi(cfg1, name_prefix1, cfg2, name_prefix2):
+        bit1 = cfg1['N_bits']
+        bit2 = cfg2['N_bits']
+        sym = '_sym' if cfg2['symmetric'] else '_asym'
+        first_part = f'{name_prefix1}{bit1}{name_prefix2}{bit2}{sym}'
+        g1 = '_' + str(cfg1['granularity']).replace('-', '_')
+        g2 = '_' + str(cfg2['granularity']).replace('-', '_')
+        qtype = '' if cfg1['type'] == 'normal' else '_' + str(cfg1['type']).replace('-', '_')
+        return f'{first_part}{qtype}{g1}{g2}'
+
+    use_weight_quantizer = bool(w_cfg)
+    use_act_quantizer = bool(a_cfg)
+
+    if use_weight_quantizer and use_act_quantizer:
+        config_name = format_quantizer_info_multi(w_cfg, 'W', a_cfg, 'A')
+    elif use_weight_quantizer:
+        config_name = format_quantizer_info(w_cfg, 'W')
+    elif use_act_quantizer:
+        config_name = format_quantizer_info(a_cfg, 'A')
+    else:
+        config_name = ""
+
+    use_gradient_quantizer = bool(g_cfg)
+    use_state_quantizer = bool(s_cfg)
+    prefix = '' if config_name == "" else '_'
+
+    if use_gradient_quantizer and use_state_quantizer:
+        config_name += prefix + format_quantizer_info_multi(g_cfg, 'G', s_cfg, 'S')
+    elif use_gradient_quantizer:
+        config_name += prefix + format_quantizer_info(g_cfg, 'G')
+    elif use_state_quantizer:
+        config_name += prefix + format_quantizer_info(s_cfg, 'S')
+    else:
+        config_name += ""
+
+    return config_name
+
+
 def creat_unique_experiment_name(config: Dict[str, Any]) -> str:
     """
     Generate a unique experiment name based on the provided configurations.
@@ -82,13 +142,17 @@ def creat_unique_experiment_name(config: Dict[str, Any]) -> str:
     _config = copy.deepcopy(config)
     _config = remove_useless_key(_config)
     model_arch = _config['model']['type']
-    use_quantizer = len(_config['model']['weight_quantize_module'].keys())>0
+    if _config['optimizer']:
+        quantizer_cfg_name = create_quant_config_name(_config['model']['weight_quantize_module'],
+                                                      _config['model']['act_quantize_module'],
+                                                      _config['optimizer']['grad_quantize_module'],
+                                                      _config['optimizer']['state_quantize_module'])
+    else:
+        quantizer_cfg_name = create_quant_config_name(_config['model']['weight_quantize_module'],
+                                                      _config['model']['act_quantize_module'])
     _config = unroll_configs(_config)
     # Convert the unrolled dictionary to a JSON string and hash it
     unrolled_json = json.dumps(_config, sort_keys=True)
     hash_name = hashlib.md5(unrolled_json.encode()).hexdigest()[:8]
-    if use_quantizer:
-        exp_name = f"{model_arch}_{_config['model_weight_quantize_module_N_bits']}bit_{_config['model_weight_quantize_module_type']}_{hash_name}"
-    else:
-        exp_name = f"{model_arch}_{hash_name}"
+    exp_name = f"{model_arch}_{quantizer_cfg_name}_{hash_name}"
     return exp_name

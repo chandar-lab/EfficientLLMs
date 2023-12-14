@@ -111,20 +111,28 @@ class _Clamp_MAD(_Clamp):
 
 
 class Quantizer(torch.nn.Module, Registrable):
-    def __init__(self, N_bits: int = 4, signed: bool = True, granularity: str = 'per-tensor'):
+    def __init__(self, N_bits: int = 4, signed: bool = True, granularity: str = 'per-tensor', inplace: bool = False,
+                 all_positive: bool = False, symmetric: bool = True, minimum_range: float = 1e-5):
         super().__init__()
         self.N_bits = N_bits
         self.signed = signed
         self.max_range = 0.
         self.min_range = 0.
-        assert granularity in ['per-tensor', 'per-column', 'per-token']
+        assert granularity in ['per-tensor', 'per-column', 'per-token', 'per-group']
         self.granularity = granularity
-        if self.signed:
-            self.Qn = - 2 ** (self.N_bits - 1)
-            self.Qp = 2 ** (self.N_bits - 1) - 1
-        else:
+        self.inplace = inplace
+        self.symmetric = symmetric
+        self.minimum_range = minimum_range
+        if all_positive:
             self.Qn = 0
             self.Qp = 2 ** self.N_bits - 1
+        else:
+            if self.signed:
+                self.Qn = - 2 ** (self.N_bits - 1)
+                self.Qp = 2 ** (self.N_bits - 1) - 1
+            else:
+                self.Qn = 0
+                self.Qp = 2 ** self.N_bits - 1
 
     def linear_quantize(self, input: torch.tensor):
         raise NotImplementedError
@@ -138,49 +146,116 @@ class Quantizer(torch.nn.Module, Registrable):
     def monitor_ranges(self):
         raise NotImplementedError
 
+    def update_step_size(self, input):
+        raise NotImplementedError
+
+    def inplace_quantize(self, input):
+        raise NotImplementedError
+
     def forward(self, input: torch.tensor):
-        if self.N_bits == 32:
+        if self.N_bits >= 32:
             return input
         else:
-            # for monitoring weights
-            self.max_range = input.max().item()
-            self.min_range = input.min().item()
-            quantized_input = self.linear_quantize(input)
-            dequantized_input = self.linear_dequantize(quantized_input)
-            return dequantized_input
+            if self.inplace:
+                return self.inplace_quantize(input)
+            else:
+                # for monitoring weights
+                self.max_range = input.max().item()
+                self.min_range = input.min().item()
+                quantized_input = self.linear_quantize(input)
+                dequantized_input = self.linear_dequantize(quantized_input)
+                return dequantized_input
 
 
 @Quantizer.register("normal")
 class Normal(Quantizer):
-    def __init__(self, **kwargs):
+    def __init__(self, beta: float = None, **kwargs):
         super().__init__(**kwargs)
         self.step_size = torch.tensor(1.)
         self.zero_point = torch.tensor(0.)
+        # TODO: to save and load step size and zero point, it's better to keep them as a register buffer.
+        #  But DDP failed due to: "RuntimeError: No backend type associated with device type cpu".
+        # self.register_buffer('step_size', torch.tensor(1.))
+        # self.register_buffer('zero_point', torch.tensor(0.))
+        # instead of using dynamic range, use this beta to keep track of range and use moving average of observed data to update step size
+        self.beta = beta
 
     def linear_quantize(self, input: torch.tensor):
-        if self.granularity == 'per-tensor':
-            self.step_size = (input.abs().max() / (2 ** (self.N_bits - 1))).detach()
-        elif self.granularity == 'per-column':
-            self.step_size = (input.abs().max(dim=-1, keepdim=True)[0] / (2 ** (self.N_bits - 1))).detach()
-        elif self.granularity == 'per-token':
-            # TODO: complete per token quantization
-            raise NotImplementedError
-        else:
-            raise NotImplementedError
 
+        self.update_step_size(input)
         x = torch.clamp((input / self.step_size) - self.zero_point, self.Qn, self.Qp)
-        #x = round_pass(x)
-        x = (x.round() - (input / self.step_size)).detach() + (input / self.step_size)
+        x = round_pass(x)
         return x
 
     def linear_dequantize(self, input: torch.tensor):
         return (input + self.zero_point) * self.step_size
 
     def _init_q_params(self, input: torch.tensor):
-        pass
+        self.update_step_size(input)
 
     def monitor_ranges(self):
         return {'max_weight': self.max_range, 'min_weight': self.min_range}
+
+    @staticmethod
+    def _step_size_moving_average_update(step_size_new, step_size_pre, beta):
+        if beta is None:
+            return step_size_new
+        else:
+            return step_size_pre*beta + step_size_new*(1-beta)
+
+    def update_step_size(self, input):
+        if self.granularity == 'per-tensor':
+            if self.symmetric:
+                scale = input.abs().max().detach().clamp_(min=self.minimum_range)
+                # self.step_size = scale / self.Qp
+                self.step_size = self._step_size_moving_average_update(scale/self.Qp, self.step_size, self.beta)
+                self.zero_point = torch.tensor(0.)
+            else:
+                scale = (input.max() - input.min()).detach().clamp_(min=self.minimum_range)
+                # self.step_size = scale / (2*self.Qp)
+                self.step_size = self._step_size_moving_average_update(scale/(2*self.Qp), self.step_size, self.beta)
+                self.zero_point = torch.round((input.min().detach() / self.step_size) - self.Qn)
+
+        elif self.granularity == 'per-column':
+            assert len(input.shape) > 1, "per channel quantization is not supported for 1d tensor"
+            if len(input.shape) == 4:
+                raise "It's not clear how to implement per channel for 4d tensors"
+            # for 3d tensor, this implementation is not batch independent!
+
+            if self.symmetric:
+                scale = input.abs().max(dim=-1, keepdim=True)[0].detach().clamp_(min=self.minimum_range)
+                # self.step_size = scale / self.Qp
+                self.step_size = self._step_size_moving_average_update(scale/self.Qp, self.step_size, self.beta)
+                self.zero_point = torch.tensor(0.)
+            else:
+                scale = (input.max(dim=-1, keepdim=True)[0] - input.min(dim=-1, keepdim=True)[0]).detach().clamp_(min=self.minimum_range)
+                # self.step_size = scale / (2*self.Qp)
+                self.step_size = self._step_size_moving_average_update(scale/(2 * self.Qp), self.step_size, self.beta)
+                self.zero_point = torch.round((input.min(dim=-1, keepdim=True)[0].detach() / self.step_size) - self.Qn)
+
+        elif self.granularity == 'per-token':
+            assert len(input.shape) == 3, "per token quantization is only supported for 3d tensor"
+            # the input shape is B,T,Cin and the step size will have a shape of T,1
+            if self.symmetric:
+                scale = input.abs().amax(dim=(0, 2), keepdim=True)[0].detach().clamp_(min=self.minimum_range)
+                self.step_size = scale / self.Qp
+                self.zero_point = torch.tensor(0.)
+            else:
+                scale = (input.amax(dim=(0, 2), keepdim=True)[0]-input.amin(dim=(0, 2), keepdim=True)[0]).detach().clamp_(min=self.minimum_range)
+                self.step_size = scale / (2 * self.Qp)
+                self.zero_point = torch.round((input.amin(dim=(0, 2), keepdim=True)[0].detach() / self.step_size) - self.Qn)
+
+        elif self.granularity == 'per-group':
+            # TODO: complete per group quantization
+            raise NotImplementedError
+        else:
+            raise NotImplementedError
+
+    def inplace_quantize(self, input):
+        # for inference
+        self.update_step_size(input)
+        with torch.no_grad():
+            input.div_(self.step_size).sub_(self.zero_point).round_().add_(self.zero_point).mul_(self.step_size)
 
 
 @Quantizer.register("lsq")

@@ -3,7 +3,6 @@ local base = (import 'base.jsonnet');
 base + {
     model+:{
         type: "gpt2-hf",
-        weight_quantize_module: {},
         config: {
             activation_function: "gelu_new",
             attn_pdrop: 0.1,

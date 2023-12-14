@@ -6,16 +6,19 @@ from common import FromParams, Registrable, Params, Lazy
 import os
 import logging
 from typing import Iterator
+from transformers.pytorch_utils import Conv1D
 
 
-def make_quant_layer(weight_quantize_module: Quantizer, module: torch.nn.Module, layer_type: torch.nn):
+def make_quant_layer(weight_quantize_module: Quantizer, act_quantize_module: Quantizer,
+                     module: torch.nn.Module, layer_type: torch.nn):
     """
     code modified from: https://github.com/IST-DASLab/gptq
     recursively replace the layers of the model with `layer_type`, with quantized version one
     Args:
-        weight_quantize_module: quantizer module
+        weight_quantize_module: quantizer module for weight
+        act_quantize_module: quantizer module for activation
         module: model
-        layer_type: nn.Linear or nn.Conv2d
+        layer_type: nn.Linear or nn.Conv2d or transformers.pytorch_utils.Conv1D
 
     Returns:
 
@@ -27,44 +30,70 @@ def make_quant_layer(weight_quantize_module: Quantizer, module: torch.nn.Module,
         if type(tmp) == layer_type:
             setattr(
                 module, attr,
-                construct_quant_layer(weight_quantize_module, tmp, layer_type)
+                construct_quant_layer(weight_quantize_module, act_quantize_module, tmp, layer_type)
             )
             quant_layer = module.__getattr__(attr)
-            quant_layer.weight.data = tmp.weight.data
             if tmp.bias is not None:
                 quant_layer.bias.data = tmp.bias.data
 
     for name1, child in module.named_children():
-        make_quant_layer(weight_quantize_module, child, layer_type)
+        make_quant_layer(weight_quantize_module, act_quantize_module, child, layer_type)
 
 
-def construct_quant_layer(weight_quantize_module: Quantizer, layer: torch.nn.Module, layer_type: torch.nn):
-    wq_module = weight_quantize_module.construct()
-    wq_module._init_q_params(layer.weight)
+def construct_quant_layer(weight_quantize_module: Quantizer, act_quantize_module: Quantizer,
+                          layer: torch.nn.Module, layer_type: torch.nn):
+    if weight_quantize_module is None:
+        wq_module = None
+    else:
+        wq_module = weight_quantize_module.construct()
+        wq_module._init_q_params(layer.weight)
+    if act_quantize_module is None:
+        act_module = None
+    else:
+        act_module = act_quantize_module.construct()
+
     if layer_type == nn.Linear:
-        return Quantized_Linear(wq_module, layer.in_features, layer.out_features,
-                                layer.bias is not None)
+        quant_layer = Quantized_Linear(wq_module, act_module, layer.in_features, layer.out_features,
+                                       layer.bias is not None)
+        quant_layer.weight.data = layer.weight.data
+        return quant_layer
+
     elif layer_type == nn.Conv2d:
-        return Quantized_Conv2d(wq_module, layer.in_channels, layer.out_channels,
-                                layer.kernel_size,
-                                stride=layer.stride, padding=layer.padding, dilation=layer.dilation,
-                                groups=layer.groups,
-                                bias=layer.bias is not None)
+        quant_layer = Quantized_Conv2d(wq_module, act_module, layer.in_channels, layer.out_channels, layer.kernel_size,
+                                       stride=layer.stride, padding=layer.padding, dilation=layer.dilation,
+                                       groups=layer.groups, bias=layer.bias is not None)
+        quant_layer.weight.data = layer.weight.data
+        return quant_layer
+
+    elif layer_type == Conv1D:
+        quant_layer = Quantized_Linear(wq_module, act_module, layer.weight.shape[0], layer.weight.shape[1],
+                                       layer.bias is not None)
+        quant_layer.weight.data = layer.weight.data.T
+        return quant_layer
+    else:
+        raise NotImplementedError
 
 
 class Base_Model(Registrable):
-    def __init__(self, weight_quantize_module: Lazy[Quantizer], exp_name: str = None,
+    def __init__(self, weight_quantize_module: Lazy[Quantizer], act_quantize_module: Lazy[Quantizer], exp_name: str = None,
                  save_path: str = './save'):
-        #super().__init__()
-        self.weight_quantize_module = weight_quantize_module
+        # super().__init__()
         self.exp_name = exp_name
         self.save_path = save_path
         if len(weight_quantize_module._params) > 0:
+            self.weight_quantize_module = weight_quantize_module
+        else:
+            self.weight_quantize_module = None
+        if len(act_quantize_module._params) > 0:
+            self.act_quantize_module = act_quantize_module
+        else:
+            self.act_quantize_module = None
+        if self.act_quantize_module is not None or self.weight_quantize_module is not None:
             self._model2quant()
 
     def _model2quant(self):
-        make_quant_layer(self.weight_quantize_module, self, nn.Linear)
-        make_quant_layer(self.weight_quantize_module, self, nn.Conv2d)
+        make_quant_layer(self.weight_quantize_module, self.act_quantize_module, self, nn.Linear)
+        make_quant_layer(self.weight_quantize_module, self.act_quantize_module, self, Conv1D)
 
     def compute_max_magnitude_loss(self):
         loss = torch.tensor(0.).to(self.device)

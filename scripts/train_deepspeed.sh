@@ -11,6 +11,7 @@
 #SBATCH --constraint=80gb               # constraints
 
 export CUBLAS_WORKSPACE_CONFIG=:16:8
+export HF_HOME=$SCRATCH/hf_home
 module load libffi
 source ../ENV/bin/activate
 torchrun --nproc_per_node=4 src/main.py --configs 'configs/base.jsonnet, configs/model/gp2-small.jsonnet, configs/dataset/openwebtext.jsonnet, configs/trainer/gpt2_4gpu_deepspeed.jsonnet' train

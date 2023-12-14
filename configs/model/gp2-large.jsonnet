@@ -9,7 +9,6 @@ base + {
         fused_dropout_add_ln: false, # fused dropout is not installed yet, due to some issues
         residual_in_fp32: true,
         pad_vocab_size_multiple: 8,
-        weight_quantize_module: {},
         config: {
             activation_function: "gelu_new",
             attn_pdrop: 0.1,
