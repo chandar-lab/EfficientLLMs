@@ -48,8 +48,11 @@ class OpenWebText_HF(Dataset):
             "revision": "main",
             "token": None,
             "trust_remote_code": False,
+            "add_prefix_space": True,
         }
         tokenizer = AutoTokenizer.from_pretrained("gpt2", **tokenizer_kwargs)
+        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+        self.tokenizer = tokenizer
 
         # Preprocessing the datasets.
         column_names = list(raw_datasets["train"].features)

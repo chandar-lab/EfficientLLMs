@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 import random
@@ -7,7 +8,7 @@ import wandb
 import logging
 
 import json
-from models import Base_Model
+from models import Base_Model, dequant_model
 from data_loader import Dataset
 from common import FromParams, Lazy, Params
 from typing import Dict, Any
@@ -15,31 +16,36 @@ import math
 
 from train import MyTrainingArguments
 from transformers import Trainer
+from train import MyHFTrainer
+from callbacks import WandbCallback
 import transformers
 import datasets
-from transformers.integrations.integration_utils import WandbCallback
-from transformers import TrainerCallback
+from transformers.trainer_utils import get_last_checkpoint
 from optimizer import Base_Optimizer
+from evaluate import Evaluate
+from plot import activation_hook, plot_mse_layer, extract_mse_between_layers
 
 logger = logging.getLogger(__name__)
 
 
 class Runtime(FromParams):
-    def __init__(self, seed: int, _project_name: str, _entity: str, model: Lazy[Base_Model],
+    def __init__(self, seed: int, _project_name: str, _entity: str, model: Lazy[Base_Model], evaluation_task: Lazy[Evaluate],
                  train_args: Lazy[MyTrainingArguments], dataset: Lazy[Dataset], optimizer: Lazy[Base_Optimizer],
-                 _save_path: str = './save', _wandb_logs: bool = False, _resume: str = None, _device: str = 'cuda'):
+                 _save_path: str = './save', _wandb_logs: bool = False):
         self.model = model
         self.train_args = train_args
         self.trainer = None
         self.dataset = dataset
+        if len(evaluation_task._params) > 0:
+            self.evaluation_task = evaluation_task.construct()
+        else:
+            self.evaluation_task = None
         self.seed = seed
         self.project_name = _project_name
         self.entity = _entity
         self.save_path = _save_path
         self.wandb_logs = _wandb_logs
         self.exp_name = None
-        self.resume = _resume
-        self.device = _device
         self.optimizer = optimizer
         os.makedirs(_save_path, exist_ok=True)
 
@@ -51,28 +57,15 @@ class Runtime(FromParams):
         os.makedirs(output_dir, exist_ok=True)
 
         # 1- setup train args
-        if self.wandb_logs:
-            os.environ["WANDB_PROJECT"] = self.project_name  # log to your project
-            os.environ["WANDB_LOG_MODEL"] = "all"  # log your models
-            self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
-                                                        logging_dir=output_dir, run_name=EXPERIMENT_NAME,
-                                                        report_to=['wandb'])
-        else:
-            os.environ["WANDB_DISABLED"] = "true"
-            self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
-                                                        logging_dir=output_dir, run_name=EXPERIMENT_NAME,
-                                                        report_to=None)
+        self.train_args = self.train_args.construct(data_seed=self.seed, seed=self.seed, output_dir=output_dir,
+                                                    logging_dir=output_dir)
+        # enable TF32
+        if torch.cuda.is_available() and self.train_args.tf32:
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
 
         # 2- setup model
         model = self.model.construct(exp_name=self.exp_name, save_path=output_dir)
-        if self.train_args.bf16:
-            logger.info("change model to bf16.")
-            model = model.to(dtype=torch.bfloat16, device=self.train_args.device)
-        if not torch.cuda.is_available() and 'cuda' in self.device:
-            logging.warning('CUDA not available')
-            self.device = torch.device('cpu')
-        else:
-            self.device = torch.device(self.device)
 
         # 3- setup dataset
         self.dataset = self.dataset.construct()
@@ -81,21 +74,21 @@ class Runtime(FromParams):
 
         # 4- setup trainer
         self._creat_optimizer(model=model)
-        self.trainer = Trainer(model=model,
-                               args=self.train_args,
-                               optimizers=[self.optimizer, None],
-                               train_dataset=tokenized_datasets["train"],
-                               eval_dataset=tokenized_datasets["validation"])
-
-        # 5- setup logging and wandb and callbacks
-        self.setup_logging(log_path=os.path.join(self.save_path, EXPERIMENT_NAME), training_args=self.train_args)
         if self.wandb_logs:
-            # init wandb callback and update the config
-            for callback in self.trainer.callback_handler.callbacks:
-                if isinstance(callback, WandbCallback):
-                    callback.setup(self.trainer.args, self.trainer.state, self.trainer.model)
-                    if self.trainer.state.is_world_process_zero:
-                        callback._wandb.config.update(cfg, allow_val_change=True)
+            wandb_callback = [WandbCallback(model=model, entity=self.entity, project=self.project_name,
+                                            name=EXPERIMENT_NAME, config=cfg, tags=[])]
+        else:
+            wandb_callback = None
+
+        self.trainer = MyHFTrainer(model=model,
+                                   args=self.train_args,
+                                   optimizers=[self.optimizer, None],
+                                   callbacks=wandb_callback,
+                                   tokenizer=self.dataset.tokenizer,
+                                   train_dataset=tokenized_datasets["train"],
+                                   eval_dataset=tokenized_datasets["validation"],
+                                   evaluation_task=self.evaluation_task,
+                                   )
 
         jsonnet_string = json.dumps(cfg, indent=4)
         save_path = os.path.join(self.save_path, self.exp_name, 'config.jsonnet')
@@ -163,15 +156,26 @@ class Runtime(FromParams):
             trainer._save(os.path.join(self.save_path, EXPERIMENT_NAME), state_dict=cpu_state_dict)  # noqa
 
     # Evaluation
-    def evaluate(self):
+    def evaluate(self, chk: int = None, exp_name: str = None):
+
+        # load checkpoint
+        if chk is None:
+            # load last checkpoint
+            checkpoint_path = get_last_checkpoint(self.trainer.args.output_dir)
+        else:
+            if exp_name is None:
+                exp_name = self.exp_name
+            checkpoint_path = os.path.join(self.save_path, exp_name, f"checkpoint-{chk}",
+                                           "pytorch_model.bin")
+        print(f"load checkpoint from: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, )
+        self.trainer.model.load_state_dict(checkpoint)
+
         metrics = self.trainer.evaluate()
         max_eval_samples = len(self.trainer.eval_dataset)
         metrics["eval_samples"] = min(max_eval_samples, len(self.trainer.eval_dataset))
-        try:
-            perplexity = math.exp(metrics["eval_loss"])
-        except OverflowError:
-            perplexity = float("inf")
-        metrics["perplexity"] = perplexity
+
+        metrics["eval_task"] = self.evaluation_task.compute(self.trainer.model, self.trainer.tokenizer)
 
         self.trainer.log_metrics("eval", metrics)
         self.trainer.save_metrics("eval", metrics)
@@ -223,3 +227,18 @@ class Runtime(FromParams):
                                                       )
         else:
             self.optimizer = None
+
+    def plot_mse_between_layers(self):
+        model = self.trainer.model
+        model.eval()
+        tokenized_datasets = self.dataset.creat_tokenized_datasets()
+        input_ids = torch.tensor([tokenized_datasets['validation'][0]['input_ids']]).to('cuda')
+        input_activation_qaunt, output_activation_qaunt = activation_hook(model, input_ids)
+
+        model_dequant = copy.deepcopy(model)
+        dequant_model(model_dequant)
+        input_activation, output_activation = activation_hook(model_dequant, input_ids)
+        c_attn, c_proj, mlp_c_fc, mlp_c_proj = extract_mse_between_layers(model_dequant, output_activation,
+                                                                          output_activation_qaunt)
+        plot_mse_layer(c_attn, c_proj, mlp_c_fc, mlp_c_proj, os.path.join(self.save_path, self.exp_name), self.exp_name)
+        return (c_attn + c_proj + mlp_c_fc + mlp_c_proj).sum()

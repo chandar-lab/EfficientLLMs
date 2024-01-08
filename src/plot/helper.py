@@ -1,3 +1,5 @@
+import os.path
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,6 +8,7 @@ from transformers.pytorch_utils import Conv1D
 import matplotlib.pyplot as plt
 import numpy as np
 from torch.nn.functional import mse_loss
+from models import CausalGPT2_HF, CausalGPT2
 
 
 def activation_hook(model, inputs):
@@ -22,7 +25,8 @@ def activation_hook(model, inputs):
 
         all_hooks = []
         for name, m in model.named_modules():
-            if isinstance(m, (nn.Linear, nn.LayerNorm, nn.ReLU, nn.GELU, nn.Embedding, Conv1D, Quantized_Linear, Quantized_Conv2d)):
+            if isinstance(m, (
+            nn.Linear, nn.LayerNorm, nn.ReLU, nn.GELU, nn.Embedding, Conv1D, Quantized_Linear, Quantized_Conv2d)):
                 all_hooks.append(m.register_forward_hook(
                     functools.partial(_record_range, module_name=name)))
         return all_hooks
@@ -59,7 +63,7 @@ def memory_breakdown_single_batch_summery(model, human_readable=True):
         else:
             scale = 1e6
         return {'weight': weight_size / scale, 'activation': activation_size / scale,
-                'attention': attention_size / scale, 'grad': grad_size/scale}
+                'attention': attention_size / scale, 'grad': grad_size / scale}
     else:
         return {'weight': weight_size, 'activation': activation_size, 'attention': attention_size, 'grad': grad_size}
 
@@ -128,7 +132,7 @@ def memory_break_down_plot(model, show_attention=False):
         plt.grid(axis='y')
 
 
-def plot_mse_layer(n_layer: int, output_activation: dict, output_activation_quant_1: dict,
+def plot_mse_layer(c_attn, c_proj, mlp_c_fc, mlp_c_proj, save_path: str = './save',
                    title: str = 'W8_sym_per-tensor'):
     # set plot style
     fsize = 22
@@ -138,7 +142,7 @@ def plot_mse_layer(n_layer: int, output_activation: dict, output_activation_quan
     minor = 1.0
     style = 'default'
     plt.style.use(style)
-    plt.rcParams['text.usetex'] = True
+    plt.rcParams['text.usetex'] = False
     plt.rcParams['font.size'] = fsize
     plt.rcParams['legend.fontsize'] = tsize
     plt.rcParams['xtick.direction'] = tdir
@@ -151,21 +155,6 @@ def plot_mse_layer(n_layer: int, output_activation: dict, output_activation_quan
     xsize = 8
     ysize = 4
     colors = ['#003790', '#6fc2db', '#ea6372', '#93003a']
-
-    c_attn = np.zeros(n_layer)
-    c_proj = np.zeros(n_layer)
-    mlp_c_fc = np.zeros(n_layer)
-    mlp_c_proj = np.zeros(n_layer)
-
-    for i in range(n_layer):
-        name = f'transformer.h.{i}.attn.c_attn'
-        c_attn[i] = mse_loss(output_activation_quant_1[name], output_activation[name]).item()
-        name = f'transformer.h.{i}.attn.c_proj'
-        c_proj[i] = mse_loss(output_activation_quant_1[name], output_activation[name]).item()
-        name = f'transformer.h.{i}.mlp.c_fc'
-        mlp_c_fc[i] = mse_loss(output_activation_quant_1[name], output_activation[name]).item()
-        name = f'transformer.h.{i}.mlp.c_proj'
-        mlp_c_proj[i] = mse_loss(output_activation_quant_1[name], output_activation[name]).item()
 
     fig, axes = plt.subplots(figsize=(xsize, ysize))
     xticks = np.arange(len(mlp_c_proj))
@@ -182,5 +171,40 @@ def plot_mse_layer(n_layer: int, output_activation: dict, output_activation_quan
 
     axes.legend(loc='center right', ncol=1, bbox_to_anchor=(0, 0.15, 1.3, 1))
     axes.grid(axis='y', linestyle='-.', linewidth=1.)
-    plt.savefig(f'{title}.png', dpi=300, pad_inches=.1, bbox_inches='tight')
+    plt.savefig(os.path.join(save_path, f'{title}.png'), dpi=300, pad_inches=.1, bbox_inches='tight')
 
+
+def extract_mse_between_layers(model, output_activation: dict, output_activation_quant: dict):
+    n_layer = model.config.n_layer
+
+    c_attn = np.zeros(n_layer)
+    c_proj = np.zeros(n_layer)
+    mlp_c_fc = np.zeros(n_layer)
+    mlp_c_proj = np.zeros(n_layer)
+
+    if isinstance(model, CausalGPT2):
+        for i in range(n_layer):
+            name = f'transformer.layers.{i}.mixer.Wqkv'
+            c_attn[i] = mse_loss(output_activation_quant[name], output_activation[name]).item()
+            name = f'transformer.layers.{i}.mixer.out_proj'
+            c_proj[i] = mse_loss(output_activation_quant[name], output_activation[name]).item()
+            name = f'transformer.layers.{i}.mlp.fc1'
+            mlp_c_fc[i] = mse_loss(output_activation_quant[name], output_activation[name]).item()
+            name = f'transformer.layers.{i}.mlp.fc2'
+            mlp_c_proj[i] = mse_loss(output_activation_quant[name], output_activation[name]).item()
+
+    elif isinstance(model, CausalGPT2_HF):
+        for i in range(n_layer):
+            name = f'transformer.h.{i}.attn.c_attn'
+            c_attn[i] = mse_loss(output_activation_quant[name], output_activation[name]).item()
+            name = f'transformer.h.{i}.attn.c_proj'
+            c_proj[i] = mse_loss(output_activation_quant[name], output_activation[name]).item()
+            name = f'transformer.h.{i}.mlp.c_fc'
+            mlp_c_fc[i] = mse_loss(output_activation_quant[name], output_activation[name]).item()
+            name = f'transformer.h.{i}.mlp.c_proj'
+            mlp_c_proj[i] = mse_loss(output_activation_quant[name], output_activation[name]).item()
+
+    else:
+        raise NotImplementedError
+
+    return c_attn, c_proj, mlp_c_fc, mlp_c_proj

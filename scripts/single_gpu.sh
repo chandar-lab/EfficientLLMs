@@ -12,4 +12,4 @@ export HF_HOME=$SCRATCH/hf_home
 module load libffi
 source ../ENV/bin/activate
 #python src/main.py --configs 'configs/base.jsonnet, configs/model/gp2-small.jsonnet, configs/dataset/openwebtext.jsonnet, configs/trainer/gpt2_1gpu.jsonnet' train
-python src/main.py --configs 'configs/base.jsonnet, configs/model/gp2-small.jsonnet, configs/dataset/openwebtext.jsonnet, configs/trainer/gpt2_1gpu.jsonnet, configs/optimizer/g8_sym_per_tensor.jsonnet' train
+python src/main.py --configs 'configs/base.jsonnet, configs/model/gp2-small.jsonnet, configs/dataset/openwebtext.jsonnet, configs/trainer/gpt2_1gpu.jsonnet, configs/evaluation_task/lambada_ppl.jsonnet, configs/quantization/w8_sym_per_tensor.jsonnet' train

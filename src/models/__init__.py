@@ -1,2 +1,2 @@
-from .base_model import Base_Model
-from .gpt2 import CausalGPT2
+from .base_model import Base_Model, dequant_model
+from .gpt2 import CausalGPT2, CausalGPT2_HF

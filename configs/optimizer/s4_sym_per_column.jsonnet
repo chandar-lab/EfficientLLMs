@@ -1,0 +1,10 @@
+local base = (import 'base_adamw.jsonnet');
+local quantize_config = (import '../quantization/w4_sym_per_column.jsonnet');
+
+base + {
+    optimizer+:{
+        type: 'adamw',
+        state_quantize_module: quantize_config.weight_quantizer
+        },
+}
+

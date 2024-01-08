@@ -52,6 +52,8 @@ pip install 'matplotlib==3.7.0'
 pip install 'accelerate==0.23.0'
 pip install 'tiktoken==0.5.1'
 pip install 'rouge_score>=0.1.2'
+pip install 'tabulate'
+pip install 'sacremoses'
 pip install wheel setuptools py-cpuinfo
 
 # Clone and install flash-attention v2

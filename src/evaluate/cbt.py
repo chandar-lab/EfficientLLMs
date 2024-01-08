@@ -56,7 +56,7 @@ class CBT(Evaluate):
 
     @torch.inference_mode()
     def compute(self, model, tokenizer, stop=None):
-
+        model = model.eval()
         accuracy = 0
         model.eval()
         for idx, sample in tqdm(enumerate(self.raw_dataset), total=len(self.raw_dataset)):
