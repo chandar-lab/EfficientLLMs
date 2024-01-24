@@ -169,7 +169,7 @@ class Quantizer(torch.nn.Module, Registrable):
 
 @Quantizer.register("normal")
 class Normal(Quantizer):
-    def __init__(self, beta: float = None, **kwargs):
+    def __init__(self, beta: float = None, groupsize: int = None, **kwargs):
         super().__init__(**kwargs)
         self.step_size = torch.tensor(1.)
         self.zero_point = torch.tensor(0.)
@@ -179,16 +179,30 @@ class Normal(Quantizer):
         # self.register_buffer('zero_point', torch.tensor(0.))
         # instead of using dynamic range, use this beta to keep track of range and use moving average of observed data to update step size
         self.beta = beta
+        self.groupsize = groupsize
 
     def linear_quantize(self, input: torch.tensor):
 
         self.update_step_size(input)
-        x = torch.clamp((input / self.step_size) - self.zero_point, self.Qn, self.Qp)
-        x = round_pass(x)
+        if self.granularity == 'per-group':
+            to_quant = input.reshape(-1, self.groupsize)
+            self.step_size = self.step_size.reshape(-1, 1)
+            self.zero_point = self.zero_point.reshape(-1, 1)
+            x = torch.clamp((to_quant / self.step_size) - self.zero_point, self.Qn, self.Qp)
+            x = round_pass(x).reshape_as(input)
+        else:
+            x = torch.clamp((input / self.step_size) - self.zero_point, self.Qn, self.Qp)
+            x = round_pass(x)
         return x
 
     def linear_dequantize(self, input: torch.tensor):
-        return (input + self.zero_point) * self.step_size
+        if self.granularity == 'per-group':
+            input_grouped = input.reshape(-1, self.groupsize)
+            self.step_size = self.step_size.reshape(-1, 1)
+            self.zero_point = self.zero_point.reshape(-1, 1)
+            return ((input_grouped + self.zero_point) * self.step_size).reshape_as(input)
+        else:
+            return (input + self.zero_point) * self.step_size
 
     def _init_q_params(self, input: torch.tensor):
         self.update_step_size(input)
@@ -201,19 +215,19 @@ class Normal(Quantizer):
         if beta is None:
             return step_size_new
         else:
-            return step_size_pre*beta + step_size_new*(1-beta)
+            return step_size_pre * beta + step_size_new * (1 - beta)
 
     def update_step_size(self, input):
         if self.granularity == 'per-tensor':
             if self.symmetric:
                 scale = input.abs().max().detach().clamp_(min=self.minimum_range)
                 # self.step_size = scale / self.Qp
-                self.step_size = self._step_size_moving_average_update(scale/self.Qp, self.step_size, self.beta)
+                self.step_size = self._step_size_moving_average_update(scale / self.Qp, self.step_size, self.beta)
                 self.zero_point = torch.tensor(0.)
             else:
                 scale = (input.max() - input.min()).detach().clamp_(min=self.minimum_range)
                 # self.step_size = scale / (2*self.Qp)
-                self.step_size = self._step_size_moving_average_update(scale/(2*self.Qp), self.step_size, self.beta)
+                self.step_size = self._step_size_moving_average_update(scale / (2 * self.Qp), self.step_size, self.beta)
                 self.zero_point = torch.round((input.min().detach() / self.step_size) - self.Qn)
 
         elif self.granularity == 'per-column':
@@ -225,12 +239,13 @@ class Normal(Quantizer):
             if self.symmetric:
                 scale = input.abs().max(dim=-1, keepdim=True)[0].detach().clamp_(min=self.minimum_range)
                 # self.step_size = scale / self.Qp
-                self.step_size = self._step_size_moving_average_update(scale/self.Qp, self.step_size, self.beta)
+                self.step_size = self._step_size_moving_average_update(scale / self.Qp, self.step_size, self.beta)
                 self.zero_point = torch.tensor(0.)
             else:
-                scale = (input.max(dim=-1, keepdim=True)[0] - input.min(dim=-1, keepdim=True)[0]).detach().clamp_(min=self.minimum_range)
+                scale = (input.max(dim=-1, keepdim=True)[0] - input.min(dim=-1, keepdim=True)[0]).detach().clamp_(
+                    min=self.minimum_range)
                 # self.step_size = scale / (2*self.Qp)
-                self.step_size = self._step_size_moving_average_update(scale/(2 * self.Qp), self.step_size, self.beta)
+                self.step_size = self._step_size_moving_average_update(scale / (2 * self.Qp), self.step_size, self.beta)
                 self.zero_point = torch.round((input.min(dim=-1, keepdim=True)[0].detach() / self.step_size) - self.Qn)
 
         elif self.granularity == 'per-token':
@@ -241,13 +256,31 @@ class Normal(Quantizer):
                 self.step_size = scale / self.Qp
                 self.zero_point = torch.tensor(0.)
             else:
-                scale = (input.amax(dim=(0, 2), keepdim=True)[0]-input.amin(dim=(0, 2), keepdim=True)[0]).detach().clamp_(min=self.minimum_range)
+                scale = (input.amax(dim=(0, 2), keepdim=True)[0] - input.amin(dim=(0, 2), keepdim=True)[
+                    0]).detach().clamp_(min=self.minimum_range)
                 self.step_size = scale / (2 * self.Qp)
-                self.zero_point = torch.round((input.amin(dim=(0, 2), keepdim=True)[0].detach() / self.step_size) - self.Qn)
+                self.zero_point = torch.round(
+                    (input.amin(dim=(0, 2), keepdim=True)[0].detach() / self.step_size) - self.Qn)
 
         elif self.granularity == 'per-group':
-            # TODO: complete per group quantization
-            raise NotImplementedError
+            if self.groupsize > input.shape[-1]:
+                self.groupsize = input.shape[-1]
+            assert self.groupsize > 1
+            assert input.shape[-1] % self.groupsize == 0
+            assert input.dim() == 2
+            to_quant = input.reshape(-1, self.groupsize)
+            if self.symmetric:
+                scales = to_quant.amax(dim=1, keepdim=True).detach().clamp_(min=self.minimum_range)
+                self.step_size = (scales / self.Qp).reshape(input.shape[0], -1)
+                self.zero_point = torch.tensor(0.)
+            else:
+                max_val = to_quant.amax(dim=1, keepdim=True).detach()
+                min_val = to_quant.amin(dim=1, keepdim=True).detach()
+                scales = (max_val - min_val).clamp(min=self.minimum_range) / (2 * self.Qp)
+                zeros = torch.round((min_val / scales) - self.Qn)
+                self.step_size = scales.reshape(input.shape[0], -1)
+                self.zero_point = zeros.reshape(input.shape[0], -1)
+
         else:
             raise NotImplementedError
 
@@ -284,7 +317,7 @@ class LSQ(Quantizer):
 
     def monitor_ranges(self):
         return {'max_weight': self.max_range, 'min_weight': self.min_range,
-                'range_pos': (self.step_size*self.Qp).item(), 'range_neg': (self.step_size*self.Qn).item()}
+                'range_pos': (self.step_size * self.Qp).item(), 'range_neg': (self.step_size * self.Qn).item()}
 
 
 @Quantizer.register("wcat")
@@ -346,3 +379,97 @@ class WCAT(Quantizer):
                 'range_pos': self.q_range.item(), 'range_neg': (-self.q_range).item()}
 
 
+class ExtractScaleAndBias(Registrable):
+    def __init__(self, symmetric: bool = True, Qp: int = None, Qn: int = None,
+                 beta: float = None, minimum_range: float = 1e-8):
+        """
+
+        Args:
+            symmetric: boolean flag to indicate symmetric or asymmetric quantization
+            Qp: maximum quantize range
+            Qn: minimum quantize range
+            beta: to save the moving average of the scale
+            minimum_range: minimum range for clipping function
+        """
+        self.symmetric = symmetric
+        self.Qp = Qp
+        self.Qn = Qn
+        self.beta = beta
+        self.minimum_range = minimum_range
+
+    def return_scale_and_bias(self, input: torch.tensor, step_size):
+        raise NotImplementedError
+
+    def _step_size_moving_average_update(self, step_size_new, step_size_pre):
+        if self.beta is None:
+            return step_size_new
+        else:
+            return step_size_pre * self.beta + step_size_new * (1 - self.beta)
+
+
+@ExtractScaleAndBias.register("per-tensor")
+class PerTensor(ExtractScaleAndBias):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def return_scale_and_bias(self, input: torch.tensor, step_size):
+        if self.symmetric:
+            scale = input.abs().max().detach().clamp_(min=self.minimum_range)
+            step_size = self._step_size_moving_average_update(scale / self.Qp, step_size)
+            zero_point = torch.tensor(0.)
+        else:
+            scale = (input.max() - input.min()).detach().clamp_(min=self.minimum_range)
+            step_size = self._step_size_moving_average_update(scale / (2 * self.Qp), step_size)
+            zero_point = torch.round((input.min().detach() / step_size) - self.Qn)
+        return step_size, zero_point
+
+@ExtractScaleAndBias.register("per-column")
+class PerColumn(ExtractScaleAndBias):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def return_scale_and_bias(self, input: torch.tensor, step_size):
+        assert len(input.shape) > 1, "per channel quantization is not supported for 1d tensor"
+        if len(input.shape) == 4:
+            raise "It's not clear how to implement per channel for 4d tensors"
+        # for 3d tensor, this implementation is not batch independent!
+
+        if self.symmetric:
+            scale = input.abs().max(dim=-1, keepdim=True)[0].detach().clamp_(min=self.minimum_range)
+            step_size = self._step_size_moving_average_update(scale / self.Qp, step_size)
+            zero_point = torch.tensor(0.)
+        else:
+            scale = (input.max(dim=-1, keepdim=True)[0] - input.min(dim=-1, keepdim=True)[0]).detach().clamp_(
+                min=self.minimum_range)
+            step_size = self._step_size_moving_average_update(scale / (2 * self.Qp), step_size)
+            zero_point = torch.round((input.min(dim=-1, keepdim=True)[0].detach() / step_size) - self.Qn)
+        return step_size, zero_point
+
+@ExtractScaleAndBias.register("per-token")
+class PerToken(ExtractScaleAndBias):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def return_scale_and_bias(self, input: torch.tensor, step_size):
+        assert len(input.shape) == 3, "per token quantization is only supported for 3d tensor"
+        # the input shape is B,T,Cin and the step size will have a shape of T,1
+        if self.symmetric:
+            scale = input.abs().amax(dim=(0, 2), keepdim=True)[0].detach().clamp_(min=self.minimum_range)
+            step_size = scale / self.Qp
+            zero_point = torch.tensor(0.)
+        else:
+            scale = (input.amax(dim=(0, 2), keepdim=True)[0] - input.amin(dim=(0, 2), keepdim=True)[
+                0]).detach().clamp_(min=self.minimum_range)
+            step_size = scale / (2 * self.Qp)
+            zero_point = torch.round(
+                (input.amin(dim=(0, 2), keepdim=True)[0].detach() / step_size) - self.Qn)
+        return step_size, zero_point
+
+@ExtractScaleAndBias.register("per-group")
+class PerGroup(ExtractScaleAndBias):
+    def __init__(self, group_size: int = 32, **kwargs):
+        super().__init__(**kwargs)
+        self.group_size = group_size
+
+    def return_scale_and_bias(self, input: torch.tensor, step_size):
+        raise NotImplementedError

@@ -208,3 +208,41 @@ def extract_mse_between_layers(model, output_activation: dict, output_activation
         raise NotImplementedError
 
     return c_attn, c_proj, mlp_c_fc, mlp_c_proj
+
+
+def plot_eval_on_checkpoints(metrics, save_path: str = None):
+    # plot style:
+    fsize = 22
+    tsize = 20
+    tdir = 'in'
+    major = 1.0
+    minor = 1.0
+    style = 'default'
+    xsize = 8
+    ysize = 5
+    plt.style.use(style)
+    # plt.rcParams['text.usetex'] = True
+    plt.rcParams['font.size'] = fsize
+    plt.rcParams['legend.fontsize'] = tsize
+    plt.rcParams['xtick.direction'] = tdir
+    plt.rcParams['ytick.direction'] = tdir
+    plt.rcParams['xtick.major.size'] = major
+    plt.rcParams['xtick.minor.size'] = minor
+    plt.rcParams['ytick.major.size'] = major
+    plt.rcParams['ytick.minor.size'] = minor
+    plt.rcParams['lines.linewidth'] = 2
+
+    assert 'iters' in metrics
+    dash_style = ['-o', '-s', '-x', '-d']
+    colors = ['#003790', '#6fc2db', '#ea6372', '#93003a']
+    num_metrics = len(metrics.keys()) - 1
+    iters = np.array(metrics.pop('iters'))/10000
+    fig, axes = plt.subplots(1, num_metrics, figsize=(num_metrics * xsize, 1 * ysize))
+    for i, key in enumerate(metrics.keys()):
+        axes[i].plot(iters, metrics[key], dash_style[i], color=colors[i], alpha=1.0)
+        axes[i].set_xlabel('Training Iteration')
+        axes[i].set_title(key)
+        axes[i].text(1.12, -0.12, '(1e4)', transform=axes[i].transAxes,
+                     ha='right', va='bottom', fontsize=fsize, color='black')
+        axes[i].grid()
+    plt.savefig(os.path.join(save_path, 'eval_on_checkpoints.pdf'), dpi=300, pad_inches=.1, bbox_inches='tight')

@@ -6,13 +6,14 @@ import numpy as np
 import torch
 import wandb
 import logging
+import re
+import csv
 
 import json
 from models import Base_Model, dequant_model
 from data_loader import Dataset
-from common import FromParams, Lazy, Params
+from common import FromParams, Lazy, Params, load_configs
 from typing import Dict, Any
-import math
 
 from train import MyTrainingArguments
 from transformers import Trainer
@@ -23,13 +24,14 @@ import datasets
 from transformers.trainer_utils import get_last_checkpoint
 from optimizer import Base_Optimizer
 from evaluate import Evaluate
-from plot import activation_hook, plot_mse_layer, extract_mse_between_layers
+from plot import activation_hook, plot_mse_layer, extract_mse_between_layers, plot_eval_on_checkpoints
 
 logger = logging.getLogger(__name__)
 
 
 class Runtime(FromParams):
-    def __init__(self, seed: int, _project_name: str, _entity: str, model: Lazy[Base_Model], evaluation_task: Lazy[Evaluate],
+    def __init__(self, seed: int, _project_name: str, _entity: str, model: Lazy[Base_Model],
+                 evaluation_task: Lazy[Evaluate],
                  train_args: Lazy[MyTrainingArguments], dataset: Lazy[Dataset], optimizer: Lazy[Base_Optimizer],
                  _save_path: str = './save', _wandb_logs: bool = False):
         self.model = model
@@ -153,7 +155,7 @@ class Runtime(FromParams):
             for key in state_dict.keys():
                 cpu_state_dict[key] = state_dict[key]
             del state_dict
-            trainer._save(os.path.join(self.save_path, EXPERIMENT_NAME), state_dict=cpu_state_dict)  # noqa
+            self.trainer._save(os.path.join(self.save_path, self.exp_name), state_dict=cpu_state_dict)  # noqa
 
     # Evaluation
     def evaluate(self, chk: int = None, exp_name: str = None):
@@ -175,7 +177,8 @@ class Runtime(FromParams):
         max_eval_samples = len(self.trainer.eval_dataset)
         metrics["eval_samples"] = min(max_eval_samples, len(self.trainer.eval_dataset))
 
-        metrics["eval_task"] = self.evaluation_task.compute(self.trainer.model, self.trainer.tokenizer)
+        if self.evaluation_task is not None:
+            metrics["eval_task"] = self.evaluation_task.compute(self.trainer.model, self.trainer.tokenizer)
 
         self.trainer.log_metrics("eval", metrics)
         self.trainer.save_metrics("eval", metrics)
@@ -242,3 +245,64 @@ class Runtime(FromParams):
                                                                           output_activation_qaunt)
         plot_mse_layer(c_attn, c_proj, mlp_c_fc, mlp_c_proj, os.path.join(self.save_path, self.exp_name), self.exp_name)
         return (c_attn + c_proj + mlp_c_fc + mlp_c_proj).sum()
+
+    def evaluation_on_checkpoints(self, eval_config: str = None):
+
+        import pandas as pd
+
+        all_files = os.listdir(os.path.join(self.save_path, self.exp_name))
+        tmp_spec_checkpoints = [file for file in all_files if re.match(r'tmp-spec-checkpoint-\d+', file)]
+        tmp_spec_checkpoints.sort(key=lambda x: int(re.search(r'\d+', x).group()))
+        global_iters = [int(re.search(r'\d+', file).group()) for file in tmp_spec_checkpoints]
+
+        if eval_config is not None:
+            t = load_configs(eval_config)['evaluation_task']
+            task_name = t['type']
+            self.trainer.evaluation_task = Evaluate.from_params(Params(t))
+        else:
+            task_name = None
+        def _update_metrics(dict, new_dict):
+            for key, value in new_dict.items():
+                if key in dict:
+                    dict[key].append(value)
+                else:
+                    dict[key] = [value]
+
+        metrics = {}
+        for i in range(len(tmp_spec_checkpoints)):
+            checkpoint_path = os.path.join(self.save_path, self.exp_name, tmp_spec_checkpoints[i])
+            print(f"load checkpoint from: {checkpoint_path}")
+            self.trainer._load_from_checkpoint(checkpoint_path)
+            """
+            This flag should be set into True, to avoid changing the model into bf16. 
+            Since, in this code, we used mixed precision, parameters are stored in fp32 and
+            only specific operations modified into bf16 using torch-autocast. For the baseline model,
+            we didn't face any issue. But for quantized model, quantization and dequantization process 
+            make a huge difference. 
+            """
+            self.trainer.is_in_train = True
+            res = self.trainer.evaluate()
+
+            # modify keys
+            if 'eval_runtime' in res.keys():
+                res.pop('eval_runtime')
+                res.pop('eval_samples_per_second')
+                res.pop('eval_steps_per_second')
+            new_dict = {}
+            for key, value in res.items():
+                if key.startswith('eval_ds'):
+                    new_key = f'{task_name}_{key[len("eval_ds"):]}'
+                    new_dict[new_key] = value
+                else:
+                    new_dict[key] = value
+
+            # update metric dict
+            _update_metrics(metrics, new_dict)
+            _update_metrics(metrics, {'iters': global_iters[i]})
+
+            # save results
+            df = pd.DataFrame(metrics)
+            df.to_csv(os.path.join(self.trainer.args.output_dir, 'eval_on_checkpoints.csv'), index=False)
+
+        # plot the result
+        plot_eval_on_checkpoints(metrics, save_path=self.trainer.args.output_dir)

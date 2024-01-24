@@ -64,10 +64,10 @@ pushd "$FLASH_ATTENTION_DIR"
 git checkout "tags/v$FLASH_ATTN_VERSION"
 TORCH_CUDA_ARCH_LIST="$NV_CC" MAX_JOBS="$MAX_JOBS" python setup.py install
 pushd csrc/fused_dense_lib && pip install .
-pushd csrc/xentropy && pip install .
-pushd csrc/rotary && pip install .
+pushd ../xentropy && pip install .
+pushd ../rotary && pip install .
 # there is an issue with installing layer_norm
-# cd pushd csrc/layer_norm && pip install .
+# pushd ../layer_norm && pip install .
 popd  # Exit from csrc/rotary
 
 popd  # Exit from flash-attention

@@ -62,14 +62,14 @@ else:
 if is_accelerate_available():
     from accelerate import Accelerator, skip_first_batches
     from accelerate import __version__ as accelerate_version
-    from accelerate.utils import (
-        DistributedDataParallelKwargs,
-        GradientAccumulationPlugin,
-        load_fsdp_model,
-        load_fsdp_optimizer,
-        save_fsdp_model,
-        save_fsdp_optimizer,
-    )
+    # from accelerate.utils import (
+    #     DistributedDataParallelKwargs,
+    #     GradientAccumulationPlugin,
+    #     load_fsdp_model,
+    #     load_fsdp_optimizer,
+    #     save_fsdp_model,
+    #     save_fsdp_optimizer,
+    # )
 
     DATA_SAMPLERS = [RandomSampler]
     if version.parse(accelerate_version) > version.parse("0.23.0"):
@@ -591,11 +591,6 @@ class MyHFTrainer(Trainer):
         # Wait for the checkpoint to be uploaded.
         self._finish_current_push()
 
-        # After training we make sure to retrieve back the original forward pass method
-        # for the embedding layer by removing the forward post hook.
-        if self.neftune_noise_alpha is not None:
-            self._deactivate_neftune(self.model)
-
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
     def evaluate(
@@ -692,6 +687,16 @@ class MyHFTrainer(Trainer):
         #########################################
 
         self.log(output.metrics)
+
+        if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
+            # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
+            xm.master_print(met.metrics_report())
+
+        self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
+
+        self._memory_tracker.stop_and_update_metrics(output.metrics)
+
+        return output.metrics
 
     def _save_spec_checkpoint(self, trial):
         if self.state.global_step % self.args.save_spec_steps ==0 and self.state.global_step > 0:
