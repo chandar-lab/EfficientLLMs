@@ -5,6 +5,7 @@ from runtime import Runtime
 from common import Params, load_configs, creat_unique_experiment_name
 import fire
 
+
 class EntryPoint(object):
     experiment = None
     configs = None

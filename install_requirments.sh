@@ -11,6 +11,7 @@ set -v
 
 FLASH_ATTN_VERSION='2.3.2'
 DeepSpeed_VERSION='0.11.1'
+BitsAndBytes_VERSION='0.42.0'
 export MAX_JOBS=4
 
 # Default config
@@ -88,3 +89,11 @@ pip install . --global-option="build_ext" --global-option="-j4" --no-cache -v \
 #python setup.py build_ext -j8 bdist_wheel
 #pip install dist/*.whl --no-deps
 #cp dist/*.whl $SCRATCH
+
+# Clone and install BitsAndBytes
+BitsAndBytes_DIR="$WORK_DIR/bitsandbytes"
+git clone https://github.com/timdettmers/bitsandbytes.git "$BitsAndBytes_DIR"
+cd "$BitsAndBytes_DIR"
+git checkout "tags/$BitsAndBytes_VERSION"
+CUDA_VERSION=118 make cuda11x
+python setup.py install

@@ -26,7 +26,8 @@ def activation_hook(model, inputs):
         all_hooks = []
         for name, m in model.named_modules():
             if isinstance(m, (
-            nn.Linear, nn.LayerNorm, nn.ReLU, nn.GELU, nn.Embedding, Conv1D, Quantized_Linear, Quantized_Conv2d)):
+                    nn.Linear, nn.LayerNorm, nn.ReLU, nn.GELU, nn.Embedding, Conv1D, Quantized_Linear,
+                    Quantized_Conv2d)):
                 all_hooks.append(m.register_forward_hook(
                     functools.partial(_record_range, module_name=name)))
         return all_hooks
@@ -236,7 +237,7 @@ def plot_eval_on_checkpoints(metrics, save_path: str = None):
     dash_style = ['-o', '-s', '-x', '-d']
     colors = ['#003790', '#6fc2db', '#ea6372', '#93003a']
     num_metrics = len(metrics.keys()) - 1
-    iters = np.array(metrics.pop('iters'))/10000
+    iters = np.array(metrics.pop('iters')) / 10000
     fig, axes = plt.subplots(1, num_metrics, figsize=(num_metrics * xsize, 1 * ysize))
     for i, key in enumerate(metrics.keys()):
         axes[i].plot(iters, metrics[key], dash_style[i], color=colors[i], alpha=1.0)
@@ -246,3 +247,45 @@ def plot_eval_on_checkpoints(metrics, save_path: str = None):
                      ha='right', va='bottom', fontsize=fsize, color='black')
         axes[i].grid()
     plt.savefig(os.path.join(save_path, 'eval_on_checkpoints.pdf'), dpi=300, pad_inches=.1, bbox_inches='tight')
+
+
+def plot_activations_histogram(input_activation, layer=0, attention_only=False, n_head=12):
+    # set plot style
+    fsize = 22
+    tsize = 20
+    tdir = 'in'
+    major = 1.0
+    minor = 1.0
+    style = 'default'
+    plt.style.use(style)
+    plt.rcParams['text.usetex'] = False
+    plt.rcParams['font.size'] = fsize
+    plt.rcParams['legend.fontsize'] = tsize
+    plt.rcParams['xtick.direction'] = tdir
+    plt.rcParams['ytick.direction'] = tdir
+    plt.rcParams['xtick.major.size'] = major
+    plt.rcParams['xtick.minor.size'] = minor
+    plt.rcParams['ytick.major.size'] = major
+    plt.rcParams['ytick.minor.size'] = minor
+    plt.rcParams['lines.linewidth'] = 2
+    xsize = 8
+    ysize = 5.5
+    num_bins = 256
+
+    list_of_activations = ['norm1', 'mixer.Wqkv', 'mixer.out_proj', 'norm2', 'mlp.fc1', 'mlp.fc2']
+    layer_name = f'transformer.layers.{layer}'
+
+    fig, axes = plt.subplots(1, len(list_of_activations), figsize=(len(list_of_activations) * xsize, 1 * ysize))
+    for i, act in enumerate(list_of_activations):
+        act_ = input_activation[f'{layer_name}.{act}'].detach().cpu().float().numpy().reshape(-1)
+        counts, bins = np.histogram(act_, num_bins)
+        counts = counts / len(act_)
+        width_ = (max(bins) - min(bins)) / num_bins
+        axes[i].bar(bins[:-1], counts, width=width_, alpha=0.9)
+        xticks = np.linspace(min(bins), max(bins), 5)
+        xticks = np.round(xticks, 3)
+        axes[i].set_xticks(xticks)
+        axes[i].grid()
+        axes[i].set_yscale('log')
+        axes[i].set_title(act)
+    fig.suptitle(f' Input Activations of Layer {layer} ', fontsize=30, y=1.05)

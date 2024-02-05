@@ -38,6 +38,7 @@ import torch
 from torch import nn
 import math
 import os
+import signal
 import sys
 import time
 import shutil
@@ -375,6 +376,20 @@ class MyHFTrainer(Trainer):
                     # AT THE VERY END!
                     sampler = sampler if sampler is not None else []
                     _ = list(sampler)
+
+        #########################################
+        ############# Modified here #############
+        #########################################
+        # Save the model when receiving the signal SIGTERM
+        def handler(signum, frame):
+            print(f"Signal {signum} received on rank {self.accelerator.process_index}, checkpointing...")
+            # self.accelerator.save_state()
+            self._save_checkpoint(model, trial, metrics=None)
+            self.accelerator.wait_for_everyone()
+            print(f"Done on rank {self.accelerator.process_index}")
+            sys.exit(0)
+        signal.signal(signal.SIGTERM, handler)
+        #########################################
 
         total_batched_samples = 0
         for epoch in range(epochs_trained, num_train_epochs):
