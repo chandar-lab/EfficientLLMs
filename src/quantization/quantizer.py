@@ -120,7 +120,6 @@ class Quantizer(torch.nn.Module, Registrable):
         self.min_range = 0.
         assert granularity in ['per-tensor', 'per-column', 'per-token', 'per-group']
         self.granularity = granularity
-        self.inplace = inplace
         self.symmetric = symmetric
         self.minimum_range = minimum_range
         if all_positive:
@@ -149,22 +148,16 @@ class Quantizer(torch.nn.Module, Registrable):
     def update_step_size(self, input):
         raise NotImplementedError
 
-    def inplace_quantize(self, input):
-        raise NotImplementedError
-
     def forward(self, input: torch.tensor):
         if self.N_bits >= 32:
             return input
         else:
-            if self.inplace:
-                return self.inplace_quantize(input)
-            else:
-                # for monitoring weights
-                self.max_range = input.max().item()
-                self.min_range = input.min().item()
-                quantized_input = self.linear_quantize(input)
-                dequantized_input = self.linear_dequantize(quantized_input)
-                return dequantized_input
+            # for monitoring weights
+            # self.max_range = input.max().item()
+            # self.min_range = input.min().item()
+            quantized_input = self.linear_quantize(input)
+            dequantized_input = self.linear_dequantize(quantized_input)
+            return dequantized_input
 
 
 @Quantizer.register("normal")
@@ -188,11 +181,10 @@ class Normal(Quantizer):
             to_quant = input.reshape(-1, self.groupsize)
             self.step_size = self.step_size.reshape(-1, 1)
             self.zero_point = self.zero_point.reshape(-1, 1)
-            x = torch.clamp((to_quant / self.step_size) - self.zero_point, self.Qn, self.Qp)
-            x = round_pass(x).reshape_as(input)
+            x = torch.clamp((to_quant / self.step_size) - self.zero_point, self.Qn, self.Qp).round()
+            x = x.reshape_as(input)
         else:
-            x = torch.clamp((input / self.step_size) - self.zero_point, self.Qn, self.Qp)
-            x = round_pass(x)
+            x = torch.clamp((input / self.step_size) - self.zero_point, self.Qn, self.Qp).round()
         return x
 
     def linear_dequantize(self, input: torch.tensor):
@@ -473,3 +465,83 @@ class PerGroup(ExtractScaleAndBias):
 
     def return_scale_and_bias(self, input: torch.tensor, step_size):
         raise NotImplementedError
+
+# code modified from: https://github.com/TimDettmers/bitsandbytes/blob/73d3e7b61307a7a8c05a8bab1be7a54d4ebd0156/bitsandbytes/nn/triton_based_modules.py#L69
+class _qauntize_global(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, X_3D, W, bias=None, w_qmodule=None, a_qmodule=None, g_qmodule=None):
+        # reshape input to [N * L, D]
+        X = X_3D.view(-1, X_3D.size(-1))
+        if w_qmodule is not None:
+            weight_quant = w_qmodule(W)
+        else:
+            weight_quant = W
+        if a_qmodule is not None:
+            input_quant = a_qmodule(X)
+        else:
+            input_quant = X
+
+        # save for backward.
+        ctx.save_for_backward = X, W
+
+        ctx.g_qmodule = g_qmodule
+        output = input_quant.matmul(weight_quant.t())
+        if bias is not None:
+            output += bias.unsqueeze(0).expand_as(output)
+        return output.view(*X_3D.size()[:-1], -1)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+
+        G = grad_output.reshape(-1, grad_output.size(-1))
+        grad_X = grad_W = grad_bias = None
+        X, W = ctx.save_for_backward
+
+        if ctx.g_qmodule is not None:
+            grad_quant = ctx.g_qmodule(G)
+        else:
+            grad_quant = G
+
+        if ctx.needs_input_grad[0]:
+            # grad_X = torch.matmul(grad_quant, weight_quant.to(grad_quant.dtype)).view(*grad_output.size()[:-1], -1)
+            grad_X = torch.matmul(G, W.to(G.dtype)).view(*grad_output.size()[:-1], -1)
+        if ctx.needs_input_grad[1]:
+            # grad_W = torch.matmul(G.t(), X.to(G.dtype))
+           grad_W = torch.matmul(grad_quant.t(), X.to(grad_quant.dtype))
+        if ctx.needs_input_grad[2]:
+            grad_bias = G.sum(dim=0)
+
+        return grad_X, grad_W, grad_bias, None, None, None
+
+@Quantizer.register("split_quant")
+class Split_Quantization(Normal):
+    def __init__(self, num_split: int = 1, **kwargs):
+        super().__init__(**kwargs)
+        self.num_split = num_split
+
+    @staticmethod
+    def split_tensor_columns(input, num_split):
+        cols_per_split = input.size(1) // num_split
+        split_tensors = []
+        for i in range(num_split):
+            start_index = i * cols_per_split
+            end_index = (i + 1) * cols_per_split if i < num_split - 1 else input.size(1)
+            split_tensor = input[:, start_index:end_index]
+            split_tensors.append(split_tensor)
+        return split_tensors
+
+    def forward(self, input: torch.tensor):
+        assert input.ndim == 2
+        if self.N_bits >= 32:
+            return input
+        else:
+            if self.num_split > 1:
+                splits = self.split_tensor_columns(input, self.num_split)
+                quantized_splits = [self.linear_dequantize(self.linear_quantize(_)) for _ in splits]
+
+                return torch.cat(quantized_splits, dim=1)
+            else:
+                quantized_input = self.linear_quantize(input)
+                dequantized_input = self.linear_dequantize(quantized_input)
+                return dequantized_input

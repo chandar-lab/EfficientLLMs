@@ -35,7 +35,7 @@ pip install --upgrade pip
 
 # download and compile python dependencies
 pip uninstall -y ninja && pip install ninja
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu118
 pip install 'jsonlines==3.0.0'
 pip install 'jsonnet==0.18.0'
 pip install 'packaging==23.2'
@@ -53,9 +53,11 @@ pip install 'matplotlib==3.7.0'
 pip install 'accelerate==0.23.0'
 pip install 'tiktoken==0.5.1'
 pip install 'rouge_score>=0.1.2'
-pip install 'tabulate'
-pip install 'sacremoses'
-pip install wheel setuptools py-cpuinfo
+pip install 'tabulate==0.9.0'
+pip install 'sacremoses==0.1.1'
+pip install 'wheel==0.42.0'
+pip install 'setuptools==41.2.0'
+pip install 'py-cpuinfo==9.0.0'
 
 # Clone and install flash-attention v2
 NV_CC="8.0;8.6" # flash-attention-v2 and exllama_kernels are anyway limited to CC of 8.0+
@@ -67,10 +69,8 @@ TORCH_CUDA_ARCH_LIST="$NV_CC" MAX_JOBS="$MAX_JOBS" python setup.py install
 pushd csrc/fused_dense_lib && pip install .
 pushd ../xentropy && pip install .
 pushd ../rotary && pip install .
-# there is an issue with installing layer_norm
-# pushd ../layer_norm && pip install .
+pushd ../layer_norm && pip install .
 popd  # Exit from csrc/rotary
-
 popd  # Exit from flash-attention
 
 

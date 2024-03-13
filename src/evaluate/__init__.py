@@ -6,4 +6,7 @@ from .wikitext import WikiText
 from .CNN_Daily_Mail import CNN_Daily_Mail
 from .WMT_14 import WMT_14_Test
 from .openwebtext import OpenWebText_Evaluation
+from .one_bilion_word import OneBillionWord
+from .ptb import PTB
+
 

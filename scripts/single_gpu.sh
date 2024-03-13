@@ -15,6 +15,9 @@ export CUBLAS_WORKSPACE_CONFIG=:16:8
 export HF_HOME=$SCRATCH/hf_home
 module load libffi
 source ../ENV/bin/activate
+
+wandb login --relogin 73fd65ff1623ce64c1f20ed621c065ec55d7eaa3
+
 #python src/main.py --configs 'configs/base.jsonnet, configs/model/gp2-small.jsonnet, configs/dataset/openwebtext.jsonnet, configs/trainer/gpt2_1gpu.jsonnet' train
 srun \
   --nodes=$SLURM_JOB_NUM_NODES \

@@ -213,13 +213,13 @@ def extract_mse_between_layers(model, output_activation: dict, output_activation
 
 def plot_eval_on_checkpoints(metrics, save_path: str = None):
     # plot style:
-    fsize = 22
-    tsize = 20
+    fsize = 18
+    tsize = 16
     tdir = 'in'
     major = 1.0
     minor = 1.0
     style = 'default'
-    xsize = 8
+    xsize = 12
     ysize = 5
     plt.style.use(style)
     # plt.rcParams['text.usetex'] = True
@@ -233,19 +233,25 @@ def plot_eval_on_checkpoints(metrics, save_path: str = None):
     plt.rcParams['ytick.minor.size'] = minor
     plt.rcParams['lines.linewidth'] = 2
 
+    def format_ticks(tick_positions):
+        return [f'{int(pos / 1000)}k' if pos > 0 else '0' for pos in tick_positions]
+
     assert 'iters' in metrics
     dash_style = ['-o', '-s', '-x', '-d']
     colors = ['#003790', '#6fc2db', '#ea6372', '#93003a']
     num_metrics = len(metrics.keys()) - 1
-    iters = np.array(metrics.pop('iters')) / 10000
-    fig, axes = plt.subplots(1, num_metrics, figsize=(num_metrics * xsize, 1 * ysize))
+    iters = np.array(metrics.pop('iters'))
+    fig, axes = plt.subplots(num_metrics, 1, figsize=(1 * xsize, num_metrics * ysize), gridspec_kw={'hspace': 0.5})
     for i, key in enumerate(metrics.keys()):
         axes[i].plot(iters, metrics[key], dash_style[i], color=colors[i], alpha=1.0)
         axes[i].set_xlabel('Training Iteration')
         axes[i].set_title(key)
-        axes[i].text(1.12, -0.12, '(1e4)', transform=axes[i].transAxes,
-                     ha='right', va='bottom', fontsize=fsize, color='black')
+        tick_positions = np.linspace(0, max(iters), 6)
+        axes[i].set_xticks(tick_positions)
+        axes[i].set_xticklabels(format_ticks(tick_positions))
         axes[i].grid()
+        if key == 'eval_loss':
+            axes[i].set_ylim(min(metrics[key]) - 0.1, max(metrics[key]) + 0.1)
     plt.savefig(os.path.join(save_path, 'eval_on_checkpoints.pdf'), dpi=300, pad_inches=.1, bbox_inches='tight')
 
 

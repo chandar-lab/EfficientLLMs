@@ -82,6 +82,9 @@ class Runtime(FromParams):
         else:
             wandb_callback = None
 
+        # 5- setup logging
+        self.setup_logging(log_path=output_dir, training_args=self.train_args)
+
         self.trainer = MyHFTrainer(model=model,
                                    args=self.train_args,
                                    optimizers=[self.optimizer, None],
@@ -111,29 +114,21 @@ class Runtime(FromParams):
     @staticmethod
     def setup_logging(log_path, training_args):
 
-        # Setup logging
-        logging.basicConfig(
-            format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-            datefmt="%m/%d/%Y %H:%M:%S",
-            handlers=[logging.StreamHandler(sys.stdout)],
-        )
-
         if training_args.should_log:
             # The default of training_args.log_level is passive, so we set log level at info here to have that default.
             transformers.utils.logging.set_verbosity_info()
 
+        os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
         log_level = training_args.get_process_log_level()
-        logger.setLevel(log_level)
         datasets.utils.logging.set_verbosity(log_level)
         transformers.utils.logging.set_verbosity(log_level)
         transformers.utils.logging.enable_default_handler()
         transformers.utils.logging.enable_explicit_format()
 
-        file_handler = logging.FileHandler(os.path.join(log_path, 'logfile.log'))
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s", "%m/%d/%Y %H:%M:%S"))
-        # logger.addHandler(file_handler)
-        logging.root.addHandler(file_handler)
+        file_formatter = transformers.utils.logging.logging.Formatter(fmt="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", )
+        file_handler = transformers.utils.logging.logging.FileHandler(os.path.join(log_path, f'logfile{os.environ.get("SLURM_JOBID", "")}.log'))
+        file_handler.setFormatter(file_formatter)
+        transformers.utils.logging.logging.root.addHandler(file_handler)
 
     def _checkpoint_is_available(self):
         items = os.listdir(self.trainer.args.output_dir)
@@ -209,22 +204,40 @@ class Runtime(FromParams):
             self._auto_fill_args_with_hf_training_args(self.optimizer._params, self.train_args)
             decay_parameters = get_parameter_names(model, ALL_LAYERNORM_LAYERS)
             decay_parameters = [name for name in decay_parameters if "bias" not in name]
+
+            quantizable_parameters = []
+            for name, m in model.named_modules():
+                if isinstance(m, torch.nn.Linear) or isinstance(m, transformers.pytorch_utils.Conv1D):
+                    if hasattr(m, 'weight'):
+                        quantizable_parameters.append(f'{name}.weight')
+
             optimizer_grouped_parameters = [
                 {
                     "params": [
-                        p for n, p in model.named_parameters() if (n in decay_parameters and p.requires_grad)
+                        p for n, p in model.named_parameters() if
+                        (n in quantizable_parameters) and (n in decay_parameters and p.requires_grad)
                     ],
                     "weight_decay": self.optimizer._params.as_dict()['weight_decay'],
+                    "quantize": True,
+                },
+                {
+                    "params": [
+                        p for n, p in model.named_parameters() if
+                        (n not in quantizable_parameters) and (n in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": self.optimizer._params.as_dict()['weight_decay'],
+                    "quantize": False,
                 },
                 {
                     "params": [
                         p for n, p in model.named_parameters() if (n not in decay_parameters and p.requires_grad)
                     ],
                     "weight_decay": 0.0,
+                    "quantize": False,
                 },
             ]
 
-            self.optimizer = self.optimizer.construct(model_params=optimizer_grouped_parameters,
+            self.optimizer = self.optimizer.construct(model_params=optimizer_grouped_parameters, quantizable_parameters=quantizable_parameters,
                                                       betas=[self.train_args.adam_beta1, self.train_args.adam_beta2],
                                                       eps=self.train_args.adam_epsilon,
                                                       )

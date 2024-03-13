@@ -3,17 +3,16 @@ from datasets import load_dataset
 import torch
 
 
-@Evaluate.register("wikitext")
-class WikiText(Evaluate):
-    def __init__(self, task: str = 'wikitext-2-v1', stride: int = 512, **kwargs):
+@Evaluate.register("1bw")
+class OneBillionWord(Evaluate):
+    def __init__(self, stride: int = 512, **kwargs):
         super().__init__(**kwargs)
-        self.raw_dataset = load_dataset("wikitext", task, num_proc=4, split='test')
+        self.raw_dataset = load_dataset("lm1b", num_proc=4, split='test')
         self.stride = stride
-        self.task = task
+        self.task = 'ppl'
 
     @torch.inference_mode()
     def compute(self, model, tokenizer):
-        model = model.eval()
         return compute_perplexity(model, tokenizer, self.raw_dataset, self.stride)
 
 
@@ -38,8 +37,7 @@ if __name__ == "__main__":
     task = Evaluate.from_params(
         Params(
             {
-                "type": "wikitext",
-                "task": 'wikitext-2-v1',
+                "type": "1bw",
                 "stride": 512,
             }
         )

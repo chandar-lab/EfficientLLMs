@@ -27,6 +27,7 @@
         save_strategy: "steps",
         save_total_limit: 2,
         save_spec_steps: 15000,
+        _save_specific_checkpoints_with_optimizer_flag: false,
         torch_compile: false,
         warmup_ratio: 0.0,
         weight_decay: 0.1,

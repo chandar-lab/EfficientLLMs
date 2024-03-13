@@ -6,7 +6,7 @@ import triton.language as tl
 from triton.language.math import llrint
 import math
 import torch
-from quantization import Quantizer
+from quantization import Quantizer, int8_matmul_rowwise_dequantize
 
 
 # global quantize
@@ -280,7 +280,7 @@ class Triton_8bit(Quantizer):
 
     def linear_quantize(self, input: torch.tensor):
         if self.granularity == 'per-tensor':
-            output, self.state = quantize_rowwise(input)
+            output, self.state = quantize_global(input)
             return output
 
         elif self.granularity == 'per-column':
@@ -303,3 +303,46 @@ class Triton_8bit(Quantizer):
             return output.view(*self.size[:-1], -1)
         else:
             return output
+
+class _switchback_vectorrize(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, X_3D, W, bias):
+        # reshape input to [N * L, D]
+        X = X_3D.view(-1, X_3D.size(-1))
+
+        ctx.save_for_backward = X, W
+        # rowwise quantize for X
+        # columnwise quantize for W (first rowwise, transpose later)
+        X_int8, state_X = quantize_rowwise(X)
+        W_int8, state_W = quantize_rowwise(W)
+
+        # matmult, fused dequant and add bias
+        # call kernel which expects rowwise quantized X and W
+        return int8_matmul_rowwise_dequantize(
+            X_int8, W_int8.t(), state_X, state_W, bias
+        ).view(*X_3D.size()[:-1], -1)
+
+    @staticmethod
+    def backward(ctx, G_3D):
+        X, W = ctx.save_for_backward
+
+        G = G_3D.reshape(-1, G_3D.size(-1))
+
+        grad_X = grad_W = grad_bias = None
+
+        if ctx.needs_input_grad[0]:
+            # rowwise quantize for G, columnwise quantize for W and fused transpose
+            # we call .t() for weight later because only A @ B^T is supported
+            G_int8, state_G = quantize_rowwise(G)
+            W_int8, state_W = quantize_columnwise_and_transpose(W)
+            grad_X = int8_matmul_rowwise_dequantize(G_int8, W_int8.t(), state_G, state_W, None).view(
+                *G_3D.size()[:-1], -1
+            )
+        if ctx.needs_input_grad[1]:
+            # backward pass uses standard weight grad
+            grad_W = torch.matmul(G.t(), X.to(G.dtype))
+        if ctx.needs_input_grad[2]:
+            grad_bias = G.sum(dim=0)
+
+        return grad_X, grad_W, grad_bias

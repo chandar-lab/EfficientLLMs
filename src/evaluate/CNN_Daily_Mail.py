@@ -5,6 +5,11 @@ from tqdm import tqdm
 from datasets import load_dataset
 import torch
 import warnings
+try:
+    from flash_attn.models.gpt import GPTLMHeadModel
+except ImportError:
+    from transformers.models.gpt2 import GPT2LMHeadModel as GPTLMHeadModel
+from transformers.models.gpt2 import GPT2LMHeadModel
 
 
 @Evaluate.register("cnn_daily_mail")
@@ -25,35 +30,43 @@ class CNN_Daily_Mail(Evaluate):
         # cumsum_cuda_kernel in flash attention does not support deterministic operation.
         torch.use_deterministic_algorithms(False)
         model.config.pad_token_id = model.config.eos_token_id  # to avoid warning
-        rougeLsum = 0
+        average_rough_score = 0
+        device = torch.device('cuda')
         for idx, sample in tqdm(enumerate(self.raw_dataset), total=len(self.raw_dataset)):
             if stop is not None and idx > stop:
                 break
 
             prompt = sample['article'] + self.hint
-            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+            inputs = tokenizer(prompt, return_tensors="pt").to(device)
             input_length = inputs.input_ids.shape[1]
-            if input_length > model.config.n_ctx - self.max_new_tokens:
+            if input_length > model.config.n_positions - self.max_new_tokens:
                 warnings.warn('contex larger than 1024 is not supported!')
                 continue
 
-            generated_tokens = torch.zeros(0, 1)
-            while generated_tokens.shape[1]<self.max_new_tokens:
-                # outputs = model.generate(inputs.input_ids, attention_mask=inputs.attention_mask,
-                #                          max_length=self.max_new_tokens + input_length, top_k=self.top_k,
-                #                          do_sample=True)
+            # generated_tokens = torch.zeros(0, 1)
+            # while generated_tokens.shape[1]<self.max_new_tokens:
+            #     # outputs = model.generate(inputs.input_ids, attention_mask=inputs.attention_mask,
+            #     #                          max_length=self.max_new_tokens + input_length, top_k=self.top_k,
+            #     #                          do_sample=True)
+            #     outputs = model.generate(inputs.input_ids, max_length=self.max_new_tokens + input_length,
+            #                              top_k=self.top_k, temperature=self.temperature)
+            #     generated_tokens = outputs[:, input_length:]
+            if isinstance(model, GPTLMHeadModel):
                 outputs = model.generate(inputs.input_ids, max_length=self.max_new_tokens + input_length,
-                                         top_k=self.top_k, temperature=self.temperature)
-                generated_tokens = outputs[:, input_length:]
+                                         top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
+            else:
+                outputs = model.generate(inputs.input_ids, max_length=self.max_new_tokens + input_length,
+                                         top_k=self.top_k, top_p=self.top_p, temperature=self.temperature, do_sample=True)
 
+            generated_tokens = outputs[:, input_length:]
             summarized = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
 
             sentences = summarized.split('.')
             first_sentences = '.'.join(sentences[:self.sentence_cuttoff]) + '.'
             result = get_rouge_score(sample['article'], first_sentences, tokenizer)
-            rougeLsum += result['rougeLsum']
+            average_rough_score += (result['rouge1']+result['rouge2']+result['rougeL'])/3
 
-        return rougeLsum / idx
+        return average_rough_score / idx
 
 
 if __name__ == "__main__":

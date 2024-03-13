@@ -23,6 +23,8 @@ def load_configs(config_files_names: str) -> Dict[str, Any]:
         config['model']['weight_quantize_module'] = config.pop('weight_quantizer')
     if "act_quantizer" in config.keys():
         config['model']['act_quantize_module'] = config.pop('act_quantizer')
+    if "grad_quantizer" in config.keys():
+        config['model']['grad_quantize_module'] = config.pop('grad_quantizer')
 
     return config
 
@@ -70,14 +72,16 @@ def unroll_configs(cfg: Dict[str, Any], parent_key='', sep='_') -> Dict[str, Any
     return items
 
 
-def create_quant_config_name(w_cfg: dict, a_cfg: dict, g_cfg: dict = None, s_cfg: dict = None):
+def create_quant_config_name(w_cfg: dict, a_cfg: dict, g_cfg: dict = None, s_one_cfg: dict = None,
+                             s_two_cfg: dict = None):
     """
 
     Args:
         w_cfg: quantization config for weights
         a_cfg: quantization config for activations
         g_cfg: quantization config for gradients
-        s_cfg: quantization config for optimizer states
+        s_one_cfg: quantization config for first optimizer states
+        s_two_cfg: quantization config for second optimizer states
 
     Returns:
 
@@ -111,16 +115,19 @@ def create_quant_config_name(w_cfg: dict, a_cfg: dict, g_cfg: dict = None, s_cfg
     else:
         config_name = ""
 
-    use_gradient_quantizer = bool(g_cfg)
-    use_state_quantizer = bool(s_cfg)
     prefix = '' if config_name == "" else '_'
-
-    if use_gradient_quantizer and use_state_quantizer:
-        config_name += prefix + format_quantizer_info_multi(g_cfg, 'G', s_cfg, 'S')
-    elif use_gradient_quantizer:
+    if bool(g_cfg):
         config_name += prefix + format_quantizer_info(g_cfg, 'G')
-    elif use_state_quantizer:
-        config_name += prefix + format_quantizer_info(s_cfg, 'S')
+
+    use_first_state_quantizer = bool(s_one_cfg)
+    use_second_state_quantizer = bool(s_two_cfg)
+
+    if use_first_state_quantizer and use_second_state_quantizer:
+        config_name += prefix + format_quantizer_info_multi(s_one_cfg, 'S1_', s_two_cfg, 'S2_')
+    elif use_first_state_quantizer:
+        config_name += prefix + format_quantizer_info(s_one_cfg, 'S1_')
+    elif use_second_state_quantizer:
+        config_name += prefix + format_quantizer_info(s_two_cfg, 'S2_')
     else:
         config_name += ""
 
@@ -145,11 +152,13 @@ def creat_unique_experiment_name(config: Dict[str, Any]) -> str:
     if _config['optimizer']:
         quantizer_cfg_name = create_quant_config_name(_config['model']['weight_quantize_module'],
                                                       _config['model']['act_quantize_module'],
-                                                      _config['optimizer']['grad_quantize_module'],
-                                                      _config['optimizer']['state_quantize_module'])
+                                                      _config['model']['grad_quantize_module'],
+                                                      _config['optimizer']['first_state_quantize_module'],
+                                                      _config['optimizer']['second_state_quantize_module'])
     else:
         quantizer_cfg_name = create_quant_config_name(_config['model']['weight_quantize_module'],
-                                                      _config['model']['act_quantize_module'])
+                                                      _config['model']['act_quantize_module'],
+                                                      _config['model']['grad_quantize_module'],)
     _config = unroll_configs(_config)
     # Convert the unrolled dictionary to a JSON string and hash it
     unrolled_json = json.dumps(_config, sort_keys=True)
