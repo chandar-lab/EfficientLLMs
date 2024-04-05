@@ -555,60 +555,82 @@ class MyHFTrainer(Trainer):
                         )
                 if self.control.should_training_stop:
                     break
+            if step < 0:
+                logger.warning(
+                    "There seems to be not a single sample in your epoch_iterator, stopping training at step"
+                    f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
+                    f" num_steps ({max_steps}) higher than the number of available samples."
+                )
+                self.control.should_training_stop = True
 
-            if args.past_index and hasattr(self, "_past"):
-                # Clean the state at the end of training
-                delattr(self, "_past")
+            self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
+            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
 
-            logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
-            if args.load_best_model_at_end and self.state.best_model_checkpoint is not None:
-                # Wait for everyone to get here so we are sur the model has been saved by process 0.
+            if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
-                    xm.rendezvous("load_best_model_at_end")
-                elif args.parallel_mode == ParallelMode.DISTRIBUTED:
-                    dist.barrier()
-                elif is_sagemaker_mp_enabled():
-                    smp.barrier()
+                    # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
+                    xm.master_print(met.metrics_report())
+                else:
+                    logger.warning(
+                        "You enabled PyTorch/XLA debug metrics but you don't have a TPU "
+                        "configured. Check your training configuration if this is unexpected."
+                    )
+            if self.control.should_training_stop:
+                break
 
-                self._load_best_model()
+        if args.past_index and hasattr(self, "_past"):
+            # Clean the state at the end of training
+            delattr(self, "_past")
 
-            # add remaining tr_loss
-            self._total_loss_scalar += tr_loss.item()
-            train_loss = self._total_loss_scalar / self.state.global_step
+        logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
+        if args.load_best_model_at_end and self.state.best_model_checkpoint is not None:
+            # Wait for everyone to get here so we are sur the model has been saved by process 0.
+            if is_torch_tpu_available():
+                xm.rendezvous("load_best_model_at_end")
+            elif args.parallel_mode == ParallelMode.DISTRIBUTED:
+                dist.barrier()
+            elif is_sagemaker_mp_enabled():
+                smp.barrier()
 
-            metrics = speed_metrics(
-                "train",
-                start_time,
-                num_samples=num_train_samples,
-                num_steps=self.state.max_steps,
-                num_tokens=num_train_tokens,
-            )
-            self.store_flos()
-            metrics["total_flos"] = self.state.total_flos
-            metrics["train_loss"] = train_loss
+            self._load_best_model()
 
-            self.is_in_train = False
+        # add remaining tr_loss
+        self._total_loss_scalar += tr_loss.item()
+        train_loss = self._total_loss_scalar / self.state.global_step
 
-            self._memory_tracker.stop_and_update_metrics(metrics)
+        metrics = speed_metrics(
+            "train",
+            start_time,
+            num_samples=num_train_samples,
+            num_steps=self.state.max_steps,
+            num_tokens=num_train_tokens,
+        )
+        self.store_flos()
+        metrics["total_flos"] = self.state.total_flos
+        metrics["train_loss"] = train_loss
 
-            self.log(metrics)
+        self.is_in_train = False
 
-            run_dir = self._get_output_dir(trial)
-            checkpoints_sorted = self._sorted_checkpoints(use_mtime=False, output_dir=run_dir)
+        self._memory_tracker.stop_and_update_metrics(metrics)
 
-            # Delete the last checkpoint when save_total_limit=1 if it's different from the best checkpoint and process allowed to save.
-            if self.args.should_save and self.state.best_model_checkpoint is not None and self.args.save_total_limit == 1:
-                for checkpoint in checkpoints_sorted:
-                    if not os.path.samefile(checkpoint, self.state.best_model_checkpoint):
-                        logger.info(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
-                        shutil.rmtree(checkpoint)
+        self.log(metrics)
 
-            self.control = self.callback_handler.on_train_end(args, self.state, self.control)
+        run_dir = self._get_output_dir(trial)
+        checkpoints_sorted = self._sorted_checkpoints(use_mtime=False, output_dir=run_dir)
 
-            # Wait for the checkpoint to be uploaded.
-            self._finish_current_push()
+        # Delete the last checkpoint when save_total_limit=1 if it's different from the best checkpoint and process allowed to save.
+        if self.args.should_save and self.state.best_model_checkpoint is not None and self.args.save_total_limit == 1:
+            for checkpoint in checkpoints_sorted:
+                if not os.path.samefile(checkpoint, self.state.best_model_checkpoint):
+                    logger.info(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
+                    shutil.rmtree(checkpoint)
 
-            return TrainOutput(self.state.global_step, train_loss, metrics)
+        self.control = self.callback_handler.on_train_end(args, self.state, self.control)
+
+        # Wait for the checkpoint to be uploaded.
+        self._finish_current_push()
+
+        return TrainOutput(self.state.global_step, train_loss, metrics)
 
     def evaluate(
             self,

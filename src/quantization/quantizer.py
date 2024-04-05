@@ -173,6 +173,7 @@ class Normal(Quantizer):
         # instead of using dynamic range, use this beta to keep track of range and use moving average of observed data to update step size
         self.beta = beta
         self.groupsize = groupsize
+        self.Tim_flag = False
 
     def linear_quantize(self, input: torch.tensor):
 
@@ -241,18 +242,17 @@ class Normal(Quantizer):
                 self.zero_point = torch.round((input.min(dim=-1, keepdim=True)[0].detach() / self.step_size) - self.Qn)
 
         elif self.granularity == 'per-token':
-            assert len(input.shape) == 3, "per token quantization is only supported for 3d tensor"
-            # the input shape is B,T,Cin and the step size will have a shape of T,1
             if self.symmetric:
-                scale = input.abs().amax(dim=(0, 2), keepdim=True)[0].detach().clamp_(min=self.minimum_range)
-                self.step_size = scale / self.Qp
+                scale = input.abs().max(dim=0, keepdim=True)[0].detach().clamp_(min=self.minimum_range)
+                # self.step_size = scale / self.Qp
+                self.step_size = self._step_size_moving_average_update(scale / self.Qp, self.step_size, self.beta)
                 self.zero_point = torch.tensor(0.)
             else:
-                scale = (input.amax(dim=(0, 2), keepdim=True)[0] - input.amin(dim=(0, 2), keepdim=True)[
-                    0]).detach().clamp_(min=self.minimum_range)
-                self.step_size = scale / (2 * self.Qp)
-                self.zero_point = torch.round(
-                    (input.amin(dim=(0, 2), keepdim=True)[0].detach() / self.step_size) - self.Qn)
+                scale = (input.max(dim=0, keepdim=True)[0] - input.min(dim=0, keepdim=True)[0]).detach().clamp_(
+                    min=self.minimum_range)
+                # self.step_size = scale / (2*self.Qp)
+                self.step_size = self._step_size_moving_average_update(scale / (2 * self.Qp), self.step_size, self.beta)
+                self.zero_point = torch.round((input.min(dim=0, keepdim=True)[0].detach() / self.step_size) - self.Qn)
 
         elif self.granularity == 'per-group':
             if self.groupsize > input.shape[-1]:
@@ -504,11 +504,15 @@ class _qauntize_global(torch.autograd.Function):
             grad_quant = G
 
         if ctx.needs_input_grad[0]:
-            # grad_X = torch.matmul(grad_quant, weight_quant.to(grad_quant.dtype)).view(*grad_output.size()[:-1], -1)
-            grad_X = torch.matmul(G, W.to(G.dtype)).view(*grad_output.size()[:-1], -1)
+            if ctx.g_qmodule is not None and ctx.g_qmodule.Tim_flag:
+                grad_X = torch.matmul(grad_quant, W.to(grad_quant.dtype)).view(*grad_output.size()[:-1], -1)
+            else:
+                grad_X = torch.matmul(G, W.to(G.dtype)).view(*grad_output.size()[:-1], -1)
         if ctx.needs_input_grad[1]:
-            # grad_W = torch.matmul(G.t(), X.to(G.dtype))
-           grad_W = torch.matmul(grad_quant.t(), X.to(grad_quant.dtype))
+            if ctx.g_qmodule is not None and ctx.g_qmodule.Tim_flag:
+                grad_W = torch.matmul(G.t(), X.to(G.dtype))
+            else:
+                grad_W = torch.matmul(grad_quant.t(), X.to(grad_quant.dtype))
         if ctx.needs_input_grad[2]:
             grad_bias = G.sum(dim=0)
 
@@ -545,3 +549,10 @@ class Split_Quantization(Normal):
                 quantized_input = self.linear_quantize(input)
                 dequantized_input = self.linear_dequantize(quantized_input)
                 return dequantized_input
+
+
+@Quantizer.register("split_quant_Tim")
+class Split_Quantization_Tim(Split_Quantization):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.Tim_flag = True

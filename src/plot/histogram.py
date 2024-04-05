@@ -500,3 +500,167 @@ def check_grad_per_layer(experiment, metric='cos_sim', title: str = None):
     plt.tight_layout()
     if title is not None:
         plt.title(title)
+
+
+import wandb
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import os
+
+from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
+from plot.histogram import set_plot_style
+
+
+def plot_runs_from_wandb(run_names='gpt2_A4_sym_per_column_9b08f23b', zoom=6, y2=3.1, save_name=None,
+                         downstream_result=None):
+    set_plot_style(linewidth=2.5, fsize=12, tsize=14)
+    color_plater = {'8bit per-tensor': '#4cb6bf',
+                    '8bit per-channel': '#307ab5',
+                    '8bit per-token': '#00429d',
+                    '4bit per-tensor': '#ffa482',
+                    '4bit per-channel': '#dc4c5d',
+                    '4bit per-token': '#93003a'
+                    }
+    xsize = 6.5 * 1.2
+    ysize = 3.6 * 1.2
+
+    def return_true_label(label):
+        if '8' in label:
+            if 'per_tensor' in label:
+                res = '8bit per-tensor'
+                color = color_plater[res]
+            elif 'per_column' in label:
+                res = '8bit per-channel'
+                color = color_plater[res]
+            else:
+                res = '8bit per-token'
+                color = color_plater[res]
+        elif '4' in label:
+            if 'per_tensor' in label:
+                res = '4bit per-tensor'
+                color = color_plater[res]
+            elif 'per_column' in label:
+                res = '4bit per-channel'
+                color = color_plater[res]
+            else:
+                res = '4bit per-token'
+                color = color_plater[res]
+        else:
+            res = 'baseline'
+            color = '#ff69b4'  # '#662E7D'
+        if 'asym' in label:
+            res += ' asymmetric'
+            dash = '--'
+        else:
+            dash = '-'
+        return res, color, dash
+
+    fig, axes = plt.subplots(1, 2, figsize=(2 * xsize, ysize))
+    run_names = [f.strip() for f in run_names.split(",")]
+    max_len = 0
+    for i, run_name in enumerate(run_names):
+        run_history = pd.read_csv(os.path.join('../save_new', run_name, 'run_history.csv'))
+        if run_name == 'gpt2__9959030e':
+            print('remove ourlier in gpt2__9959030e')
+            outlier_indices = run_history['eval_loss'] > 5.5
+            run_history.loc[outlier_indices, 'eval_loss'] = run_history['eval_loss'].shift(1)[outlier_indices]
+        idx = run_history['train_global_step'].argsort()
+        label = run_name[:run_name.rfind('_')]
+        if 'A4' in label and 'per_token' in label:
+            label = label
+            print(label)
+            label = label.replace("per_token", "per_column")
+        elif ('W4' not in label and 'W8' not in label) or 'S1' not in label:
+            label = label.replace("per_column", "per_token")
+        if 'S1' in label:
+            print(label)
+            label = label.replace("per_token", "per_column")
+
+        label, c, dash = return_true_label(label)
+        axes[0].plot(run_history['train_global_step'][idx], run_history['eval_loss'][idx], dash, color=c, alpha=.85,
+                     label=label)
+        axes[0].set_ylim(top=5)
+        max_len = max(max_len, max(run_history['train_global_step']))
+
+    def format_ticks(tick_positions):
+        return [f'{int(pos / 1000)}k' if pos > 0 else '0' for pos in tick_positions]
+
+    # print(max_len)
+    x_range = (0, max_len)  # Adjust the range as needed
+    tick_positions = np.linspace(x_range[0], x_range[1], 6)
+    axes[0].set_xticks(tick_positions)
+    axes[0].set_xticklabels(format_ticks(tick_positions))
+
+    axes[0].set_xlabel('Training Iteration')
+    axes[0].set_ylabel('Eval Loss')
+    axes[0].grid()
+    handles, labels = axes[0].get_legend_handles_labels()
+    # fig.legend(handles, labels, loc='center left', ncol=1, bbox_to_anchor=(0.9, .5, 1, 0),
+    #            bbox_transform=fig.transFigure)
+    fig.legend(handles, labels, loc='lower center', ncol=len(run_names), bbox_to_anchor=(0.0, .9, 1, 1),
+               bbox_transform=fig.transFigure)
+
+    if zoom:
+        x1, x2 = 270000, 300000
+        y1 = 2.85
+        # Make the zoom-in plot:
+        axins = zoomed_inset_axes(axes[0], zoom, loc=1)  # zoom = 2
+        for i, run_name in enumerate(run_names):
+            run_history = pd.read_csv(os.path.join('../save_new', run_name, 'run_history.csv'))
+            label = run_name[:run_name.rfind('_')]
+            if 'A4' in label and 'per_token' in label:
+                pass
+            elif ('W4' not in label and 'W8' not in label) or 'S1' not in label:
+                label = label.replace("per_column", "per_token")
+            if 'S1' in label:
+                print(label)
+                label = label.replace("per_token", "per_column")
+            label, c, dash = return_true_label(label)
+            idx = run_history['train_global_step'].argsort()
+            axins.plot(run_history['train_global_step'][idx], run_history['eval_loss'][idx], dash, color=c, alpha=.85)
+
+        axins.set_xlim(x1, x2)
+        axins.set_ylim(y1, y2)
+        axins.grid()
+        plt.xticks(visible=False)
+        plt.yticks(visible=False)
+        mark_inset(axes[0], axins, loc1=1, loc2=2, fc="none", ec="0.5")
+
+    ##############################################################################
+    base_line = {'WikiText2': 34.32, 'WikiText103': 39.94, 'Lambada': 34.8, 'PTB': 35.13, '1BW': 44.03}
+    perplexities = list(downstream_result.keys())
+    quantization_types = list(downstream_result['WikiText2'].keys())
+    hatch_pattern = '///'
+    bar_width = 0.14
+    for i, perplexity in enumerate(perplexities):
+        for j, quantization_type in enumerate(quantization_types):
+            if downstream_result[perplexity][quantization_type] is None:
+                continue
+            axes[1].bar(
+                i + j * bar_width,
+                downstream_result[perplexity][quantization_type],
+                width=bar_width,
+                label=f'{perplexity} - {quantization_type}',
+                color=color_plater[quantization_type],
+                edgecolor='black',
+            )
+        axes[1].bar(
+            i + (j + 1) * bar_width,
+            base_line[perplexity],
+            width=bar_width,
+            label=f'{perplexity} - base_line',
+            color='#ff69b4',
+            edgecolor='black',
+        )
+    # Set x-axis ticks and labels
+    axes[1].set_xticks(np.arange(len(perplexities)) + (len(quantization_types) - 1) * bar_width / 2)
+    axes[1].set_xticklabels(perplexities)
+
+    # Set labels and legend
+    axes[1].set_xlabel('')
+    axes[1].set_ylabel('Perplexity')  # Replace 'Your Y-Axis Label' with the appropriate label
+
+    if save_name is not None:
+        plt.savefig(os.path.join('../save_new', f'{save_name}_wandb_logs.pdf'), dpi=300, pad_inches=.1,
+                    bbox_inches='tight')
