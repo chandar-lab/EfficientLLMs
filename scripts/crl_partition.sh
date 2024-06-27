@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=gpt2
-#SBATCH --time=0-24:00
+#SBATCH --job-name=llama-w8
+#SBATCH --time=6-00:00
 
 #SBATCH --partition=lab-chandar
 #SBATCH --nodes=1                       # number of nodes
@@ -19,7 +19,8 @@ module load python/3.8
 module load cuda/11.8
 module load libffi
 source ../ENV/bin/activate
-torchrun --nproc_per_node=4 src/main.py --configs 'configs/base.jsonnet, configs/model/gp2-small.jsonnet, configs/dataset/openwebtext.jsonnet, configs/trainer/gpt2_4gpu_ddp_CC.jsonnet, configs/optimizer/s_one_4_sym_per_tensor.jsonnet' train
+
+torchrun --nproc_per_node=4 src/main.py --configs 'configs/base.jsonnet, configs/model/llama-small.jsonnet, configs/dataset/openwebtext_llama.jsonnet, configs/trainer/gpt2_4gpu_ddp_CC.jsonnet, configs/quantization/w8_sym_per_column.jsonnet' train
 #srun \
 #  --nodes=$SLURM_JOB_NUM_NODES \
 #  --ntasks=$SLURM_JOB_NUM_NODES \
