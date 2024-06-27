@@ -6,6 +6,7 @@ from . import webqs
 from . import anli
 from . import hellaswag
 from . import lambada
+from . import perplexity_tasks
 from .common import HFTask
 
 TASK_REGISTRY = {
@@ -26,6 +27,11 @@ TASK_REGISTRY = {
     "multirc": superglue.MultiRC,
     "wic": superglue.WordsInContext,
     "wsc": superglue.WinogradSchemaChallenge,
+    # Perplexity tasks
+    "wikitext_2": perplexity_tasks.WikiText2,
+    "wikitext_103": perplexity_tasks.WikiText103,
+    "ptb": perplexity_tasks.PTB,
+    "1bw": perplexity_tasks.OneBillionWord,
     # Order by benchmark/genre?
     "arc_easy": arc.ARCEasy,
     "arc_challenge": arc.ARCChallenge,
