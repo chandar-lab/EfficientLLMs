@@ -1,7 +1,7 @@
 # modified from https://github.com/pytorch/pytorch/blob/567db94d876eaf2d238307ffbfd5d15ce1e47b65/torch/optim/adamw.py
 import copy
 
-from quantization import Quantizer, Quantized_Conv2d, Quantized_Linear
+from quantization import Quantizer, Quantized_Linear
 from common import FromParams, Registrable, Params, Lazy
 from .base_optimizer import Base_Optimizer
 import torch

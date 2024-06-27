@@ -4,6 +4,9 @@ from . import arc
 from . import race
 from . import webqs
 from . import anli
+from . import hellaswag
+from . import lambada
+from .common import HFTask
 
 TASK_REGISTRY = {
     # GLUE
@@ -31,6 +34,8 @@ TASK_REGISTRY = {
     "anli_r1": anli.ANLIRound1,
     "anli_r2": anli.ANLIRound2,
     "anli_r3": anli.ANLIRound3,
+    "hellaswag": hellaswag.HellaSwag,
+    "lambada": lambada.Lambada,
 }
 
 

@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 import wandb
-from quantization import Quantizer, Quantized_Conv2d, Quantized_Linear
+from quantization import Quantizer, Quantized_Linear
 from common import FromParams, Registrable, Params, Lazy
-import os
 import logging
-from typing import Iterator
+import torch.nn.functional as F
 from transformers.pytorch_utils import Conv1D
 
 
@@ -24,7 +23,7 @@ def make_quant_layer(weight_quantize_module: Quantizer, act_quantize_module: Qua
     Returns:
 
     """
-    if isinstance(module, Quantized_Conv2d) or isinstance(module, Quantized_Linear):
+    if isinstance(module, Quantized_Linear):
         return
     for attr in dir(module):
         tmp = getattr(module, attr)
@@ -63,13 +62,6 @@ def construct_quant_layer(weight_quantize_module: Quantizer, act_quantize_module
         quant_layer.weight.data = layer.weight.data
         return quant_layer
 
-    elif layer_type == nn.Conv2d:
-        quant_layer = Quantized_Conv2d(wq_module, act_module, gard_module, layer.in_channels, layer.out_channels, layer.kernel_size,
-                                       stride=layer.stride, padding=layer.padding, dilation=layer.dilation,
-                                       groups=layer.groups, bias=layer.bias is not None)
-        quant_layer.weight.data = layer.weight.data
-        return quant_layer
-
     elif layer_type == Conv1D:
         quant_layer = Quantized_Linear(wq_module, act_module, gard_module, layer.weight.shape[0], layer.weight.shape[1],
                                        layer.bias is not None)
@@ -91,11 +83,8 @@ def dequant_model(model):
 
 class Base_Model(Registrable):
     def __init__(self, weight_quantize_module: Lazy[Quantizer], act_quantize_module: Lazy[Quantizer],
-                 grad_quantize_module: Lazy[Quantizer], exp_name: str = None,
-                 save_path: str = './save'):
+                 grad_quantize_module: Lazy[Quantizer]):
         # super().__init__()
-        self.exp_name = exp_name
-        self.save_path = save_path
         if len(weight_quantize_module._params) > 0:
             self.weight_quantize_module = weight_quantize_module
         else:
@@ -120,20 +109,21 @@ class Base_Model(Registrable):
             if 'Wqkv' in name and hasattr(m, "grad_quantize_module") and m.grad_quantize_module is not None:
                 m.grad_quantize_module.num_split = 3
 
-    def compute_max_magnitude_loss(self):
-        loss = torch.tensor(0.).to(self.device)
-        for name, m in self.named_modules():
-            if isinstance(m, Quantized_Conv2d) or isinstance(m, Quantized_Linear):
-                if m.bias is not None:
-                    loss += (m.weight.abs().max() + m.bias.abs().max())
-                else:
-                    loss += m.weight.abs().max()
-        return loss
+    def loglikelihood(self, context, continuation, tokenizer, truncate=True):
+        # when too long to fit in context, truncate from the left
+        inp = torch.tensor([tokenizer.encode(context + continuation)[-1024:]], dtype=torch.long).to(self.device)
+        ctxlen = len(tokenizer.encode(context.strip()))
+        ctxlen = min(ctxlen, 1023)
+
+        cont_toks = inp[:, ctxlen:]  # [batch, seq]
+        logits = F.log_softmax(self.forward(inp)[0], dim=-1)[:, ctxlen - 1:-1]  # [batch, seq, vocab]
+
+        return torch.gather(logits, 2, cont_toks.unsqueeze(-1)).squeeze(-1).detach().cpu().sum()
 
     def monitoring_range(self, wandb_logs=False):
         items = {}
         for name, m in self.named_modules():
-            if isinstance(m, Quantized_Conv2d) or isinstance(m, Quantized_Linear):
+            if isinstance(m, Quantized_Linear):
                 res = m.weight_quantize_module.monitor_ranges()
                 for key, value in res.items():
                     items[f'{name}_{key}'] = value

@@ -311,66 +311,6 @@ class LSQ(Quantizer):
         return {'max_weight': self.max_range, 'min_weight': self.min_range,
                 'range_pos': (self.step_size * self.Qp).item(), 'range_neg': (self.step_size * self.Qn).item()}
 
-
-@Quantizer.register("wcat")
-class WCAT(Quantizer):
-    def __init__(self, clip: _Clamp, use_grad_scaled: bool = True, init_method: str = 'max_abs',
-                 noisy_mse_ber: float = 1e-3, **kwargs):
-        super().__init__(**kwargs)
-        self.clip = clip
-        self.use_grad_scaled = use_grad_scaled
-        self.init_method = init_method
-        self.noisy_mse_ber = noisy_mse_ber
-        self.q_range = nn.Parameter(torch.tensor(1.), requires_grad=True)
-        self.step_size = torch.tensor(1.)
-        self.zero_point = torch.tensor(0.)
-
-    def linear_quantize(self, input: torch.tensor):
-        if self.use_grad_scaled:
-            q_range_grad_scale = 1.0 / (input.numel() ** 0.5)
-            q_range = grad_scale(self.q_range, q_range_grad_scale)
-        else:
-            q_range = self.q_range
-        x = self.clip.apply(input, q_range, self.signed)
-        if self.signed:
-            self.step_size = q_range.detach() / (2 ** (self.N_bits - 1))
-        else:
-            self.step_size = q_range.detach() / (2 ** self.N_bits - 1)
-        x_int = round_pass((x / self.step_size) - self.zero_point)
-        x_clip = torch.clamp(x_int, self.Qn, self.Qp)
-        return (x_clip - x_int).detach() + x_int
-
-    def linear_dequantize(self, input: torch.tensor):
-        return (input + self.zero_point) * self.step_size
-
-    def _init_q_params(self, input: torch.tensor):
-        if self.init_method == 'max_abs':
-            self.q_range.data = input.detach().abs().max()
-        elif self.init_method == 'SAWB':
-            self.q_range.data = get_scale(input, self.N_bits)
-        elif self.init_method == 'MSE':
-            self.q_range.data = self._bruteforce_optimal_MSE(input)
-        else:
-            raise NotImplementedError
-
-    def _bruteforce_optimal_MSE(self, input: torch.tensor):
-
-        def mse(q_range_star: float = 1.):
-            self.q_range.data = torch.tensor(q_range_star)
-            input_quant = self.forward(input)
-            return torch.nn.functional.mse_loss(input, input_quant).item()
-
-        # q_range_ = np.array(max(input.abs().max().detach(), 1e-10))
-        q_range_ = np.array(input.detach().abs().mean() * 2 * ((2 ** (self.N_bits - 1) - 1) ** 0.5))
-        res = minimize(mse, q_range_, method='Nelder-Mead', tol=1e-6)
-        assert res.success
-        return torch.tensor(res.x[0])
-
-    def monitor_ranges(self):
-        return {'max_weight': self.max_range, 'min_weight': self.min_range,
-                'range_pos': self.q_range.item(), 'range_neg': (-self.q_range).item()}
-
-
 class ExtractScaleAndBias(Registrable):
     def __init__(self, symmetric: bool = True, Qp: int = None, Qn: int = None,
                  beta: float = None, minimum_range: float = 1e-8):

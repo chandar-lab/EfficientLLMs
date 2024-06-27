@@ -15,8 +15,7 @@ class EntryPoint(object):
         _config = load_configs(configs)
         exp_name = creat_unique_experiment_name(_config)
         _config_copy = copy.deepcopy(_config)
-        self.experiment = Runtime.from_params(Params(_config))
-        self.experiment.setup(exp_name, _config_copy)
+        self.experiment = Runtime.from_params(Params(_config), exp_name=exp_name, _config_copy=_config_copy)
 
     def __getattr__(self, attr):
         if attr in self.__class__.__dict__:

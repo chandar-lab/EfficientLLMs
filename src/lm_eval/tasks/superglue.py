@@ -3,9 +3,11 @@ from tqdm import auto as tqdm_lib
 from . common import HFTask, simple_accuracy_metric, yesno
 
 
+@HFTask.register("boolq")
 class BoolQ(HFTask):
     DATASET_PATH = "super_glue"
     DATASET_NAME = "boolq"
+    TASK_NAME = 'boolq'
 
     def has_training_docs(self):
         return True
@@ -23,22 +25,22 @@ class BoolQ(HFTask):
         return f"{doc['passage']}\nquestion: {doc['question']}\nanswer: " \
             + (yesno(doc['label']) if include_target else "")
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in docs:
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
-            preds.append(lm.loglikelihood(ctx, ' yes') > lm.loglikelihood(ctx, ' no'))
+            preds.append(lm.loglikelihood(ctx, ' yes', tokenizer=tokenizer) > lm.loglikelihood(ctx, ' no', tokenizer=tokenizer))
         return simple_accuracy_metric(preds=preds, golds=golds)
 
 
+@HFTask.register("commitmentbank")
 class CommitmentBank(HFTask):
     DATASET_PATH = "super_glue"
     DATASET_NAME = "cb"
+    TASK_NAME = 'commitmentbank'
 
     def has_training_docs(self):
         return True
@@ -61,27 +63,27 @@ class CommitmentBank(HFTask):
             text += " {}".format({0: "true", 1: "neither", 2: "false"}[doc["label"]])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
             probs = np.array([
-                lm.loglikelihood(ctx, ' true'),
-                lm.loglikelihood(ctx, ' neither'),
-                lm.loglikelihood(ctx, ' false'),
+                lm.loglikelihood(ctx, ' true', tokenizer=tokenizer),
+                lm.loglikelihood(ctx, ' neither', tokenizer=tokenizer),
+                lm.loglikelihood(ctx, ' false', tokenizer=tokenizer),
             ])
             preds.append(np.argmax(probs))
         return simple_accuracy_metric(preds=preds, golds=golds)
 
 
+@HFTask.register("copa")
 class Copa(HFTask):
     DATASET_PATH = "super_glue"
     DATASET_NAME = "copa"
+    TASK_NAME = 'copa'
 
     def has_training_docs(self):
         return True
@@ -105,18 +107,16 @@ class Copa(HFTask):
             text += self.convert_choice(correct_choice)
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
             choice1 = " " + self.convert_choice(doc["choice1"])
             choice2 = " " + self.convert_choice(doc["choice2"])
-            preds.append(lm.loglikelihood(ctx, choice2) > lm.loglikelihood(ctx, choice1))
+            preds.append(lm.loglikelihood(ctx, choice2, tokenizer=tokenizer) > lm.loglikelihood(ctx, choice1, tokenizer=tokenizer))
         return simple_accuracy_metric(preds=preds, golds=golds)
 
     @staticmethod
@@ -124,9 +124,11 @@ class Copa(HFTask):
         return choice[0].lower() + choice[1:]
 
 
+@HFTask.register("multirc")
 class MultiRC(HFTask):
     DATASET_PATH = "super_glue"
     DATASET_NAME = "multirc"
+    TASK_NAME = 'multirc'
 
     def has_training_docs(self):
         return True
@@ -150,19 +152,17 @@ class MultiRC(HFTask):
         label_str = "True" if label else "False"
         return f"[{label_str}] {answer}"
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         preds = []
         for doc in docs:
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
             true_choice = self.format_answer(answer=doc["answer"], label=True)
             false_choice = self.format_answer(answer=doc["answer"], label=False)
             preds.append(
-                lm.loglikelihood(ctx, f' {true_choice}')
-                > lm.loglikelihood(ctx, f' {false_choice}')
+                lm.loglikelihood(ctx, f' {true_choice}', tokenizer=tokenizer)
+                > lm.loglikelihood(ctx, f' {false_choice}', tokenizer=tokenizer)
             )
 
         # Only count as correct if all answers are labeled correctly for each question
@@ -181,9 +181,11 @@ class MultiRC(HFTask):
         }
 
 
+@HFTask.register("wic")
 class WordsInContext(HFTask):
     DATASET_PATH = "super_glue"
     DATASET_NAME = "wic"
+    TASK_NAME = 'wic'
 
     def has_training_docs(self):
         return True
@@ -205,22 +207,22 @@ class WordsInContext(HFTask):
             text += " {}".format({0: "no", 1: "yes"}[doc["label"]])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
-            preds.append(lm.loglikelihood(ctx, ' yes') > lm.loglikelihood(ctx, ' no'))
+            preds.append(lm.loglikelihood(ctx, ' yes', tokenizer=tokenizer) > lm.loglikelihood(ctx, ' no', tokenizer=tokenizer))
         return simple_accuracy_metric(preds=preds, golds=golds)
 
 
+@HFTask.register("wsc")
 class WinogradSchemaChallenge(HFTask):
     DATASET_PATH = "super_glue"
     DATASET_NAME = "wsc"
+    TASK_NAME = 'wsc'
 
     def has_training_docs(self):
         return True
@@ -237,7 +239,7 @@ class WinogradSchemaChallenge(HFTask):
                 # GPT-3 Paper's format only uses positive examples
                 self._training_docs = [
                     doc for doc in
-                    self._load_nlp_dataset()["train"]
+                    self.data["train"]
                     if doc["label"]
                 ]
             return self._training_docs
@@ -265,14 +267,12 @@ class WinogradSchemaChallenge(HFTask):
             text += " {}".format(doc["span1_text"])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
             to_predict = " " + doc["span1_text"]
             num_tokens = len(lm.tokenizer.tokenize(to_predict))

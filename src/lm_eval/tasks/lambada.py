@@ -2,25 +2,24 @@ from lm_eval.base import Dataset
 from lm_eval.utils import sh
 import json
 import requests
-import ftfy
+from .common import HFTask
+from evaluate import LAMBADA
 
 
-class Lambada(Dataset):
+@HFTask.register("lambada")
+class Lambada(HFTask):
+    DATASET_PATH = "Rowan/hellaswag"
+    DATASET_NAME = None
+    TASK_NAME = 'lambada'
 
     def download(self):
-        sh("mkdir -p data/lambada")
-        with open("data/lambada/lambada_test.json", 'w') as f:
-            req = requests.get("https://storage.googleapis.com/gpt-2/data/lambada_test.jsonl")
-            req.raise_for_status()
-            jsons = [json.loads(l) for l in req.iter_lines()]
-            texts = [ftfy.fix_text(j['text'], normalization='NFKC') for j in jsons]
-            json.dump(texts, f)
+        pass
 
     def has_training_docs(self):
         return False
 
     def has_validation_docs(self):
-        return False
+        return True
 
     def has_test_docs(self):
         return True
@@ -32,14 +31,29 @@ class Lambada(Dataset):
         pass
 
     def load_doc(self, myjson):
-        return [doc['text'] for doc in myjson]
+        pass
 
     def test_docs(self):
-        myjson = json.load(open("data/lambada/lambada_test.json"))
-        return self.load_doc(myjson)
+        pass
 
     def doc_to_text(self, doc, include_target=True):
         pass
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
-        pass
+    def evaluate(self, docs, lm, tokenizer):
+        # task_ = LAMBADA(task='accuracy',
+        #                 top_k=1,
+        #                 top_p=0.,
+        #                 temperature=1.0,
+        #                 detokenize=True,
+        #                 stop_word_filter=False,
+        #                 detokenize_havent=False,
+        #                 stride=1024, )
+        #
+        # print(task_)
+        # acc = task_.compute(lm.gpt2, lm.tokenizer)
+        # return {
+        #     "major": acc,
+        #     "minor": {"acc": acc},
+        #     "higher_is_better": True,
+        # }
+        raise NotImplementedError

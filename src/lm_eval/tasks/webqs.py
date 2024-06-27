@@ -1,8 +1,10 @@
 from . common import HFTask
 
+@HFTask.register("webqs")
 class WebQs(HFTask):
     DATASET_PATH = "web_questions"
     DATASET_NAME = None
+    TASK_NAME = 'webqs'
 
     def has_training_docs(self):
         return True
@@ -27,6 +29,6 @@ class WebQs(HFTask):
         a = "A:" + ((" " + doc['answers'][0]) if include_target else '')
         return q + a
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm):
         # TODO: implement
         raise NotImplementedError()

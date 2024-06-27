@@ -1,11 +1,19 @@
 try:
     from flash_attn.models.gpt import GPTLMHeadModel
+    from flash_attn.models.llama import llama_config_to_gpt2_config, inv_remap_state_dict_hf_llama
 except ImportError:
     from transformers.models.gpt2 import GPT2LMHeadModel as GPTLMHeadModel
 
+try:
+    from flash_attn.ops.fused_dense import ColumnParallelLinear
+except ImportError:
+    ColumnParallelLinear = None
+
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
+from transformers import LlamaForCausalLM, LlamaConfig
 from typing import Optional, Dict
+from collections import OrderedDict, namedtuple
 from transformers import GPT2Config
 from models import Base_Model
 from common import FromParams
@@ -13,28 +21,16 @@ import torch
 from torch.nn import CrossEntropyLoss
 
 
-class MyGPT2Config(GPT2Config, FromParams):
+class MyLlamaConfig(LlamaConfig, FromParams):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-@Base_Model.register("gpt2-hf")
-class CausalGPT2_HF(GPT2LMHeadModel, Base_Model):
+
+@Base_Model.register("llama")
+class CausalLlama(GPTLMHeadModel, Base_Model):
     def __init__(
             self,
-            config: Optional[MyGPT2Config] = None,
-            **kwargs,
-    ):
-        assert config is not None
-        # for optimized gpt2
-        GPT2LMHeadModel.__init__(self, config)
-        Base_Model.__init__(self, **kwargs)
-
-
-@Base_Model.register("gpt2")
-class CausalGPT2(GPTLMHeadModel, Base_Model):
-    def __init__(
-            self,
-            config: Optional[MyGPT2Config] = None,
+            config: Optional[MyLlamaConfig] = None,
             use_flash_attn: bool = True,
             fused_bias_fc: bool = True,
             fused_mlp: bool = True,
@@ -42,9 +38,10 @@ class CausalGPT2(GPTLMHeadModel, Base_Model):
             residual_in_fp32: bool = True,
             pad_vocab_size_multiple: int = 8,
             **kwargs,
+
     ):
-        assert config is not None
         # for optimized gpt2
+        config = llama_config_to_gpt2_config(config)
         config.use_flash_attn = use_flash_attn
         config.fused_bias_fc = fused_bias_fc
         config.fused_mlp = fused_mlp
@@ -54,11 +51,9 @@ class CausalGPT2(GPTLMHeadModel, Base_Model):
         GPTLMHeadModel.__init__(self, config)
         Base_Model.__init__(self, **kwargs)
 
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda')
-        else:
-            self.device = torch.device('cpu')
-
+    # TODO: here we ignore attention_mask to make it compatible with HF trainer. The MHA in flash-attention should
+    #  be reimplement and integrate attention_mask like here:
+    #  https://github.com/huggingface/transformers/blob/0864dd3beb238b7bec3528a3d1d6c17a28f51a51/src/transformers/models/llama/modeling_llama.py#L536
     def forward(self, input_ids, position_ids=None, inference_params=None, num_last_tokens=0,
                 attention_mask: Optional[torch.FloatTensor] = None,
                 labels: Optional[torch.LongTensor] = None,
@@ -111,52 +106,3 @@ class CausalGPT2(GPTLMHeadModel, Base_Model):
             loss=loss,
             logits=lm_logits,
         )
-
-
-if __name__ == "__main__":
-    from common import Params
-
-    # DiT5Config.default_implementation = "t5"
-    model = Base_Model.from_params(
-        Params(
-            {
-                "type": "gpt2",
-                "config": {
-                    "activation_function": "gelu_new",
-                    "attn_pdrop": 0.1,
-                    "bos_token_id": 50256,
-                    "embd_pdrop": 0.1,
-                    "eos_token_id": 50256,
-                    "initializer_range": 0.02,
-                    "layer_norm_epsilon": 1e-05,
-                    "model_type": "gpt2",
-                    "n_embd": 768,
-                    "n_head": 12,
-                    "n_inner": None,
-                    "n_layer": 12,
-                    "n_positions": 1024,
-                    "reorder_and_upcast_attn": False,
-                    "resid_pdrop": 0.1,
-                    "scale_attn_by_inverse_layer_idx": False,
-                    "scale_attn_weights": True,
-                    "summary_activation": None,
-                    "summary_first_dropout": 0.1,
-                    "summary_proj_to_labels": True,
-                    "summary_type": "cls_index",
-                    "summary_use_proj": True,
-                    "transformers_version": "4.33.1",
-                    "use_cache": True,
-                    "vocab_size": 50257
-                },
-                "weight_quantize_module": {
-                    "N_bits": 8,
-                    "signed": 1,
-                    "type": "lsq",
-                    "use_grad_scaled": 1,
-                },
-                "exp_name": "test_gpt2",
-                "save_path": "./save",
-            }
-        )
-    )
-    print(model)

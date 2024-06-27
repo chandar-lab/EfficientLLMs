@@ -2,7 +2,7 @@ import os
 from common import FromParams, Registrable
 
 import transformers
-from datasets import load_dataset, DatasetDict
+from datasets import load_dataset, DatasetDict, load_from_disk
 from transformers import DataCollatorForLanguageModeling, AutoTokenizer
 from transformers.testing_utils import CaptureLogger
 from torch.utils.data import DataLoader
@@ -35,12 +35,6 @@ class OpenWebText_HF(Dataset):
         os.environ["HF_HOME"] = str(hf_home)
         self.data_root = os.path.join(os.environ.get('HF_HOME'), 'datasets')
 
-    # modified from https://github.com/huggingface/transformers/blob/main/examples/pytorch/language-modeling/run_clm.py
-    def creat_tokenized_datasets(self):
-        raw_datasets = load_dataset("openwebtext", num_proc=self.num_proc)
-        raw_datasets = raw_datasets["train"].train_test_split(test_size=self.validation_size, seed=self.val_split_seed, shuffle=True)
-        raw_datasets["validation"] = raw_datasets.pop('test')  # rename the test split to val
-
         # default args
         tokenizer_kwargs = {
             "cache_dir": None,
@@ -50,9 +44,17 @@ class OpenWebText_HF(Dataset):
             "trust_remote_code": False,
             "add_prefix_space": True,
         }
-        tokenizer = AutoTokenizer.from_pretrained("gpt2", **tokenizer_kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name, **tokenizer_kwargs)
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         self.tokenizer = tokenizer
+        self.save_directory = os.path.join(os.environ["HF_HOME"], f'datasets/openwebtext/tokenized_{self.tokenizer_name.replace("/", "-")}')
+
+    # modified from https://github.com/huggingface/transformers/blob/main/examples/pytorch/language-modeling/run_clm.py
+    def creat_tokenized_datasets(self):
+        raw_datasets = load_dataset("openwebtext", num_proc=self.num_proc)
+        raw_datasets = raw_datasets["train"].train_test_split(test_size=self.validation_size, seed=self.val_split_seed, shuffle=True)
+        raw_datasets["validation"] = raw_datasets.pop('test')  # rename the test split to val
+
 
         # Preprocessing the datasets.
         column_names = list(raw_datasets["train"].features)
@@ -64,7 +66,7 @@ class OpenWebText_HF(Dataset):
 
         def tokenize_function(examples):
             with CaptureLogger(tok_logger) as cl:
-                output = tokenizer(examples[text_column_name])
+                output = self.tokenizer(examples[text_column_name])
             # clm input could be much much longer than block_size
             if "Token indices sequence length is longer than the" in cl.out:
                 tok_logger.warning(
@@ -112,6 +114,13 @@ class OpenWebText_HF(Dataset):
             load_from_cache_file=True,
             desc=f"Grouping texts in chunks of {block_size}",
         )
+
+        lm_datasets.save_to_disk(self.save_directory)
+        print(f'tokenized dataset saved at: {self.save_directory}')
+        tok_logger.info(f'tokenized dataset saved at: {self.save_directory}')
+
+    def load_tokenized_dataset(self):
+        lm_datasets = load_from_disk(self.save_directory)
         return lm_datasets
 
 

@@ -721,8 +721,11 @@ class MyHFTrainer(Trainer):
         ############# Modified here #############
         #########################################
         if self.evaluation_task is not None:
-            output.metrics[f'eval_ds_{self.evaluation_task.task}'] = self.evaluation_task.compute(self.model,
-                                                                                                  self.tokenizer)
+            result = self.evaluation_task.evaluate(docs=self.evaluation_task.validation_docs(),
+                                                   lm=self.model,
+                                                   tokenizer=self.tokenizer,
+                                                   )
+            output.metrics[f'{self.evaluation_task.TASK_NAME}'] = result['major']
         #########################################
 
         self.log(output.metrics)

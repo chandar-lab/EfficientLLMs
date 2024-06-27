@@ -1,15 +1,17 @@
 import datasets
 import numpy as np
 import random
+from common import Registrable
 from ..base import Dataset
 
 
-class HFTask(Dataset):
+class HFTask(Dataset, Registrable):
     DATASET_PATH = None
     DATASET_NAME = None
+    TASK_NAME = None
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self._training_docs = None
         self.data = datasets.load_dataset(path=self.DATASET_PATH, name=self.DATASET_NAME)
 

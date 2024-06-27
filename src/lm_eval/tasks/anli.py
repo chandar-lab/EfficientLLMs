@@ -1,9 +1,11 @@
 from . common import HFTask
 
+@HFTask.register("anli")
 class ANLIBase(HFTask):
     DATASET_PATH = "anli"
     DATASET_NAME = None
     SPLIT = None
+    TASK_NAME = 'anli'
 
     def has_training_docs(self):
         return True
@@ -43,7 +45,7 @@ class ANLIBase(HFTask):
         a = "True, False, or Neither?" + ((" " + ["True", "Neither", "False"][doc['label']]) if include_target else '')
         return q + a
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         # TODO: implement
         raise NotImplementedError()
 

@@ -148,6 +148,7 @@ def creat_unique_experiment_name(config: Dict[str, Any]) -> str:
     """
     _config = copy.deepcopy(config)
     _config = remove_useless_key(_config)
+    _config['evaluation_task'] = {}
     model_arch = _config['model']['type']
     if _config['optimizer']:
         quantizer_cfg_name = create_quant_config_name(_config['model']['weight_quantize_module'],

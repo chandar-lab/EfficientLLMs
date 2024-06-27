@@ -17,16 +17,18 @@ class LM(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def loglikelihood(self, context, continuation):
+    def loglikelihood(self, context, continuation, tokenizer):
         """Compute log-likelihood of a generation a continuation from a context
 
-        Assume that the final text will simple be
+        Assume that the final text will simply be
             context + continuation
 
         :param context: str
             Context string for conditional generation
         :param continuation: str
             Maximum number of tokens to generate
+        :param tokenizer:
+            tokenizer
         :return: float
         """
         pass
@@ -55,8 +57,10 @@ class LM(abc.ABC):
 
 class Dataset(abc.ABC):
     @abc.abstractmethod
-    def __init__(self):
+    def __init__(self, provide_description=True, num_fewshot=5):
         self.download()
+        self.provide_description = provide_description
+        self.num_fewshot = num_fewshot
 
     def download(self):
         """Downloads the task dataset if necessary"""
@@ -104,7 +108,7 @@ class Dataset(abc.ABC):
         pass
     
     @abc.abstractmethod
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         """Take iterable of docs and evaluates, returning a dict with the following format:
 
         {
@@ -122,11 +126,11 @@ class Dataset(abc.ABC):
     def fewshot_description(self):
         return ""
 
-    def fewshot_context(self, doc, num_fewshot, provide_description):
+    def fewshot_context(self, doc):
         raw_description = self.fewshot_description()
-        description = (raw_description + "\n===\n\n") if provide_description and raw_description else ""
+        description = (raw_description + "\n===\n\n") if self.provide_description and raw_description else ""
         labeled_examples = "\n\n".join(
-            map(self.doc_to_text, self.fewshot_examples(k=num_fewshot))
+            map(self.doc_to_text, self.fewshot_examples(k=self.num_fewshot))
         ) + "\n\n"
         example = self.doc_to_text(doc, include_target=False).strip()
         return description + labeled_examples + example

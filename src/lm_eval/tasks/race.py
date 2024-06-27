@@ -4,9 +4,11 @@ import collections
 import nlp
 
 
+@HFTask.register("race")
 class RACE(HFTask):
     DATASET_PATH = "race"
     DATASET_NAME = "high"
+    TASK_NAME = 'race'
 
     cache = {}
 
@@ -59,12 +61,12 @@ class RACE(HFTask):
 
         r += doc['problems'] >> apply(enumerate) >> each(
             lambda x: 'Q: ' + x[1]['question'] + '\n\nA:' 
-            + ((' ' + x[1]['options'][['A', 'B', 'C', 'D'].index(x[1]['answer'])]) \
-                if x[0] != len(doc['problems']) - 1 or include_target else '')) \
+            + ((' ' + x[1]['options'][['A', 'B', 'C', 'D'].index(x[1]['answer'])])
+               if x[0] != len(doc['problems']) - 1 or include_target else '')) \
             >> join('\n\n')
 
         return r
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         # TODO: implement
         raise NotImplementedError()

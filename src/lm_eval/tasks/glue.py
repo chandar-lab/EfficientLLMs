@@ -21,9 +21,11 @@ def get_accuracy_and_f1(preds, golds):
     }
 
 
+@HFTask.register("cola")
 class CoLA(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "cola"
+    TASK_NAME = 'cola'
     
     def has_training_docs(self):
         return True
@@ -43,16 +45,14 @@ class CoLA(HFTask):
             text += " {}".format({1: "True", 0: "False"}[doc["label"]])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
-            preds.append(lm.loglikelihood(ctx, ' True') > lm.loglikelihood(ctx, ' False'))
+            preds.append(lm.loglikelihood(ctx, ' True', tokenizer=tokenizer) > lm.loglikelihood(ctx, ' False', tokenizer=tokenizer))
         golds = np.array(golds)
         preds = np.array(preds)
         mcc = float(matthews_corrcoef(y_true=golds, y_pred=preds))
@@ -63,9 +63,11 @@ class CoLA(HFTask):
         }
 
 
+@HFTask.register("mnli")
 class MNLI(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "mnli"
+    TASK_NAME = 'mnli'
 
     def has_training_docs(self):
         return True
@@ -96,27 +98,27 @@ class MNLI(HFTask):
             text += " {}".format({0: "True", 1: "Neither", 2: "False"}[doc["label"]])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
             probs = np.array([
-                lm.loglikelihood(ctx, ' True'),
-                lm.loglikelihood(ctx, ' Neither'),
-                lm.loglikelihood(ctx, ' False'),
+                lm.loglikelihood(ctx, ' True', tokenizer=tokenizer),
+                lm.loglikelihood(ctx, ' Neither', tokenizer=tokenizer),
+                lm.loglikelihood(ctx, ' False', tokenizer=tokenizer),
             ])
             preds.append(np.argmax(probs))
         return simple_accuracy_metric(preds=preds, golds=golds)
 
 
+@HFTask.register("mrpc")
 class MRPC(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "mrpc"
+    TASK_NAME = 'mrpc'
 
     def has_training_docs(self):
         return True
@@ -139,22 +141,22 @@ class MRPC(HFTask):
             text += " {}".format(yesno(doc["label"]))
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
-            preds.append(lm.loglikelihood(ctx, 'yes') > lm.loglikelihood(ctx, 'no'))
+            preds.append(lm.loglikelihood(ctx, 'yes', tokenizer=tokenizer) > lm.loglikelihood(ctx, 'no', tokenizer=tokenizer))
         return get_accuracy_and_f1(preds=preds, golds=golds)
 
-      
+
+@HFTask.register("rte")
 class RTE(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "rte"
+    TASK_NAME = 'rte'
 
     def has_training_docs(self):
         return True
@@ -176,22 +178,22 @@ class RTE(HFTask):
             text += " {}".format({0: "True", 1: "False"}[doc["label"]])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
-            preds.append(lm.loglikelihood(ctx, ' False') > lm.loglikelihood(ctx, ' True'))
+            preds.append(lm.loglikelihood(ctx, ' False', tokenizer=tokenizer) > lm.loglikelihood(ctx, ' True', tokenizer=tokenizer))
         return simple_accuracy_metric(preds=preds, golds=golds)
 
 
+@HFTask.register("qnli")
 class QNLI(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "qnli"
+    TASK_NAME = 'qnli'
 
     def has_training_docs(self):
         return True
@@ -213,22 +215,22 @@ class QNLI(HFTask):
             text += " {}".format({0: "Yes", 1: "No"}[doc["label"]])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
-            preds.append(lm.loglikelihood(ctx, ' False') > lm.loglikelihood(ctx, ' True'))
+            preds.append(lm.loglikelihood(ctx, ' False', tokenizer=tokenizer) > lm.loglikelihood(ctx, ' True', tokenizer=tokenizer))
         return simple_accuracy_metric(preds=preds, golds=golds)
 
 
+@HFTask.register("qqp")
 class QQP(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "qqp"
+    TASK_NAME = 'qqp'
 
     def has_training_docs(self):
         return True
@@ -251,22 +253,22 @@ class QQP(HFTask):
             text += " {}".format(yesno(doc["label"]))
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
-            preds.append(lm.loglikelihood(ctx, ' yes') > lm.loglikelihood(ctx, ' no'))
+            preds.append(lm.loglikelihood(ctx, ' yes', tokenizer=tokenizer) > lm.loglikelihood(ctx, ' no', tokenizer=tokenizer))
         return get_accuracy_and_f1(preds=preds, golds=golds)
 
 
+@HFTask.register("stsb")
 class STSB(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "stsb"
+    TASK_NAME = 'stsb'
 
     def has_training_docs(self):
         return True
@@ -290,14 +292,12 @@ class STSB(HFTask):
             text += " {}".format(doc["label"])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
             output = lm.generate(context=ctx, max_gen_length=5).strip()
             first_element = output.split()[0]
@@ -321,9 +321,11 @@ class STSB(HFTask):
         }
 
 
+@HFTask.register("sst")
 class SST(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "sst2"
+    TASK_NAME = 'sst'
 
     def has_training_docs(self):
         return True
@@ -345,22 +347,22 @@ class SST(HFTask):
             text += " {}".format({1: "Positive", 0: "Negative"}[doc["label"]])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
-            preds.append(lm.loglikelihood(ctx, ' Positive') > lm.loglikelihood(ctx, ' Negative'))
+            preds.append(lm.loglikelihood(ctx, ' Positive', tokenizer=tokenizer) > lm.loglikelihood(ctx, ' Negative', tokenizer=tokenizer))
         return simple_accuracy_metric(preds=preds, golds=golds)
 
 
+@HFTask.register("wnli")
 class WNLI(HFTask):
     DATASET_PATH = "glue"
     DATASET_NAME = "wnli"
+    TASK_NAME = 'wnli'
     
     def has_training_docs(self):
         return True
@@ -383,19 +385,17 @@ class WNLI(HFTask):
             text += " {}".format({0: "True", 1: "Neither", 2: "False"}[doc["label"]])
         return text
 
-    def evaluate(self, docs, lm, provide_description, num_fewshot):
+    def evaluate(self, docs, lm, tokenizer):
         golds = [doc["label"] for doc in docs]
         preds = []
         for doc in tqdm_lib.tqdm(docs):
             ctx = self.fewshot_context(
                 doc=doc,
-                provide_description=provide_description,
-                num_fewshot=num_fewshot,
             )
             probs = np.array([
-                lm.loglikelihood(ctx, ' True'),
-                lm.loglikelihood(ctx, ' Neither'),
-                lm.loglikelihood(ctx, ' False'),
+                lm.loglikelihood(ctx, ' True', tokenizer=tokenizer),
+                lm.loglikelihood(ctx, ' Neither', tokenizer=tokenizer),
+                lm.loglikelihood(ctx, ' False', tokenizer=tokenizer),
             ])
             preds.append(np.argmax(probs))
         return simple_accuracy_metric(preds=preds, golds=golds)

@@ -174,16 +174,4 @@ class WandbCallback(TrainerCallback):
             artifact.add_dir(artifact_path)
             self._wandb.log_artifact(artifact, aliases=[f"checkpoint-{state.global_step}"])
 
-    def on_evaluate(self, args, state, control, logs=None, **kwarg):
-        """
-        Event called after an evaluation phase.
-        """
-        pass
-
-    def on_step_end(self, args, state, control, **kwargs):
-        """
-        Event called at the end of a training step. If using gradient accumulation, one training step might take
-        several inputs.
-        """
-        pass
 
