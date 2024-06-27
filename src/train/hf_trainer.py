@@ -12,7 +12,7 @@ from transformers.training_args import ParallelMode
 import torch.distributed as dist
 from packaging import version
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
-from evaluate import Evaluate
+from lm_eval.tasks import HFTask
 from train import MyTrainingArguments
 import random
 import numpy as np
@@ -97,7 +97,7 @@ class MyHFTrainer(Trainer):
                  callbacks=None,
                  optimizers=(None, None),
                  preprocess_logits_for_metrics=None,
-                 evaluation_task: Optional[Evaluate] = None, ):
+                 evaluation_task: Optional[HFTask] = None, ):
         super().__init__(model=model, args=args, data_collator=data_collator, train_dataset=train_dataset,
                          eval_dataset=eval_dataset, tokenizer=tokenizer, model_init=model_init,
                          compute_metrics=compute_metrics, callbacks=callbacks, optimizers=optimizers,

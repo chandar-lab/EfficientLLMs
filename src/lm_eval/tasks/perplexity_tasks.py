@@ -12,8 +12,8 @@ class WikiText2(HFTask):
     def __init__(self,  stride: int = 512, **kwargs):
         super().__init__(**kwargs)
         self._training_docs = None
-        self.data = datasets.load_dataset(path=self.DATASET_PATH, name=self.DATASET_NAME, split='test')
-        self.data["validation"] = self.data.pop('test')  # rename the test split to val
+        self.data = datasets.load_dataset(path=self.DATASET_PATH, name=self.DATASET_NAME)
+        self.data["validation"] = self.data['test']  # rename the test split to val
         self.stride = stride
 
     def has_training_docs(self):
