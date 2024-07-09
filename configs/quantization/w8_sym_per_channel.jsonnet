@@ -4,7 +4,7 @@ base + {
     weight_quantizer+:{
         N_bits: 8,
         get_scales+:{
-            type: 'per-tensor'
+            type: 'per-row'
         }
     },
 }

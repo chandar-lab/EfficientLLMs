@@ -4,7 +4,7 @@ base + {
     grad_quantizer+:{
         N_bits: 4,
         get_scales+:{
-            type: 'per-tensor'
+            type: 'per-row'
         }
     },
 }

@@ -1,2 +1,2 @@
-from .quantizer import Quantizer, _qauntize_global
+from .quantizer import Quantizer, _quantize_global, ExtractScaleAndBias
 from .q_modules import *
