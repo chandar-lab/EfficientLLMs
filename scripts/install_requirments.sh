@@ -11,7 +11,6 @@ set -v
 
 FLASH_ATTN_VERSION='2.3.2'
 DeepSpeed_VERSION='0.11.1'
-BitsAndBytes_VERSION='0.42.0'
 export MAX_JOBS=4
 
 # Default config
@@ -83,17 +82,3 @@ rm -rf build
 TORCH_CUDA_ARCH_LIST="$NV_CC" DS_BUILD_FUSED_ADAM=1 DS_BUILD_FUSED_LION=1 DS_BUILD_QUANTIZER=1 \
 pip install . --global-option="build_ext" --global-option="-j4" --no-cache -v \
 --disable-pip-version-check 2>&1 | tee build.log
-
-# save binary wheel to install on other machines
-#TORCH_CUDA_ARCH_LIST="$NV_CC" DS_BUILD_FUSED_ADAM=1 DS_BUILD_UTILS=1 DS_BUILD_FUSED_LION=1 DS_BUILD_QUANTIZER=1 \
-#python setup.py build_ext -j8 bdist_wheel
-#pip install dist/*.whl --no-deps
-#cp dist/*.whl $SCRATCH
-
-# Clone and install BitsAndBytes
-BitsAndBytes_DIR="$WORK_DIR/bitsandbytes"
-git clone https://github.com/timdettmers/bitsandbytes.git "$BitsAndBytes_DIR"
-cd "$BitsAndBytes_DIR"
-git checkout "tags/$BitsAndBytes_VERSION"
-CUDA_VERSION=118 make cuda11x
-python setup.py install

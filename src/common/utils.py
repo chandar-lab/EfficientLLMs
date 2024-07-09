@@ -86,21 +86,22 @@ def create_quant_config_name(w_cfg: dict, a_cfg: dict, g_cfg: dict = None, s_one
     Returns:
 
     """
+
     def format_quantizer_info(cfg, name_prefix):
         bit = cfg['N_bits']
-        g = '_' + str(cfg['granularity']).replace('-', '_')
-        qtype = '' if cfg['type'] == 'normal' else '_' + str(cfg['type']).replace('-', '_')
-        sym = '_sym' if cfg['symmetric'] else '_asym'
+        g = '_' + str(cfg['get_scales']['type']).replace('-', '_')
+        qtype = '' if cfg['type'] == 'linear' else '_' + str(cfg['type']).replace('-', '_')
+        sym = '_sym' if cfg['get_scales']['symmetric'] else '_asym'
         return f'{name_prefix}{bit}{qtype}{sym}{g}'
 
     def format_quantizer_info_multi(cfg1, name_prefix1, cfg2, name_prefix2):
         bit1 = cfg1['N_bits']
         bit2 = cfg2['N_bits']
-        sym = '_sym' if cfg2['symmetric'] else '_asym'
+        sym = '_sym' if cfg2['get_scales']['symmetric'] else '_asym'
         first_part = f'{name_prefix1}{bit1}{name_prefix2}{bit2}{sym}'
-        g1 = '_' + str(cfg1['granularity']).replace('-', '_')
-        g2 = '_' + str(cfg2['granularity']).replace('-', '_')
-        qtype = '' if cfg1['type'] == 'normal' else '_' + str(cfg1['type']).replace('-', '_')
+        g1 = '_' + str(cfg1['get_scales']['type']).replace('-', '_')
+        g2 = '_' + str(cfg2['get_scales']['type']).replace('-', '_')
+        qtype = '' if cfg1['type'] == 'linear' else '_' + str(cfg1['type']).replace('-', '_')
         return f'{first_part}{qtype}{g1}{g2}'
 
     use_weight_quantizer = bool(w_cfg)
