@@ -108,14 +108,3 @@ class Base_Model(Registrable):
         logits = F.log_softmax(self.forward(inp)[0], dim=-1)[:, ctxlen - 1:-1]  # [batch, seq, vocab]
 
         return torch.gather(logits, 2, cont_toks.unsqueeze(-1)).squeeze(-1).detach().cpu().sum()
-
-    def monitoring_range(self, wandb_logs=False):
-        items = {}
-        for name, m in self.named_modules():
-            if isinstance(m, Quantized_Linear):
-                res = m.weight_quantize_module.monitor_ranges()
-                for key, value in res.items():
-                    items[f'{name}_{key}'] = value
-        if wandb_logs:
-            wandb.log(items)
-        logging.info(items)

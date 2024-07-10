@@ -1,6 +1,4 @@
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from quantization import Quantizer, _quantize_global
 
 class Quantized_Linear(nn.Linear):

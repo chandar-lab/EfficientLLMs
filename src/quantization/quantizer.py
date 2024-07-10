@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from common import FromParams, Registrable, Params
+from common import Registrable
 
 
 def get_scale(input: torch.tensor, N_bits: int = 2):
@@ -53,7 +53,8 @@ def grad_scale(input: torch.tensor, scale: float):
 class ExtractScaleAndBias(Registrable):
     def __init__(self, symmetric: bool = True, minimum_range: float = 1e-8):
         """
-
+        Base class for extracting quantization parameters: step_size and zero_point.
+        Uses the maximum absolute value for linear quantization.
         Args:
             symmetric: boolean flag to indicate symmetric or asymmetric quantization
             minimum_range: minimum range for clipping function
@@ -136,18 +137,26 @@ class PerGroup(ExtractScaleAndBias):
         to_quant = input.reshape(-1, self.groupsize)
         if self.symmetric:
             scales = to_quant.amax(dim=1, keepdim=True).detach().clamp_(min=self.minimum_range)
-            self.step_size = (scales / Qp).reshape(input.shape[0], -1)
-            self.zero_point = torch.tensor(0.)
+            step_size = (scales / Qp).reshape(input.shape[0], -1)
+            zero_point = torch.tensor(0.)
         else:
             max_val = to_quant.amax(dim=1, keepdim=True).detach()
             min_val = to_quant.amin(dim=1, keepdim=True).detach()
             scales = (max_val - min_val).clamp(min=self.minimum_range) / (2 * Qp)
             zeros = torch.round((min_val / scales) - Qn)
-            self.step_size = scales.reshape(input.shape[0], -1)
-            self.zero_point = zeros.reshape(input.shape[0], -1)
+            step_size = scales.reshape(input.shape[0], -1)
+            zero_point = zeros.reshape(input.shape[0], -1)
+        return step_size, zero_point
 
 
 class Quantizer(Registrable):
+    """
+        Base class for quantizers, handling the bit width and signedness for quantization.
+
+        Args:
+            N_bits (int): Number of bits for quantization.
+            signed (bool): Flag for signed (True) or unsigned (False) quantization.
+        """
     def __init__(self, N_bits: int = 4, signed: bool = True):
         super().__init__()
         self.N_bits = N_bits
@@ -202,9 +211,6 @@ class LinearQuantization(Quantizer):
             dequantized_input = self.linear_dequantize(quantized_input, step_size, zero_point)
             return dequantized_input
 
-    def monitor_ranges(self):
-        return {'max_weight': self.max_range, 'min_weight': self.min_range}
-
 
 @Quantizer.register("lsq")
 class LSQ(Quantizer):
@@ -242,9 +248,73 @@ class LSQ(Quantizer):
             dequantized_input = self.linear_dequantize(quantized_input)
             return dequantized_input
 
+@Quantizer.register("split_quant")
+class Split_Quantization(LinearQuantization):
+    """
+        Quantization class that extends LinearQuantization to handle split quantization.
 
-# code modified from: https://github.com/TimDettmers/bitsandbytes/blob/73d3e7b61307a7a8c05a8bab1be7a54d4ebd0156/bitsandbytes/nn/triton_based_modules.py#L69
+        Args:
+            num_split (int): Number of splits for the input tensor columns.
+
+        Note:
+            In FlashAttention models, the qkv projections are often combined, leading to
+            different gradient ranges. This class addresses the issue by separating the qkv
+            projections into chunks and quantizing them individually, which enhances the
+            gradient quantization performance.
+        """
+    def __init__(self, num_split: int = 1, **kwargs):
+        super().__init__(**kwargs)
+        self.num_split = num_split
+
+    @staticmethod
+    def split_tensor_columns(input, num_split):
+        cols_per_split = input.size(1) // num_split
+        split_tensors = []
+        for i in range(num_split):
+            start_index = i * cols_per_split
+            end_index = (i + 1) * cols_per_split if i < num_split - 1 else input.size(1)
+            split_tensor = input[:, start_index:end_index]
+            split_tensors.append(split_tensor)
+        return split_tensors
+
+    def forward(self, input: torch.tensor):
+        assert input.ndim == 2
+        if self.N_bits >= 32:
+            return input
+        else:
+            if self.num_split > 1:
+                splits = self.split_tensor_columns(input, self.num_split)
+                quantized_splits = [self.linear_dequantize(self.linear_quantize(_)) for _ in splits]
+
+                return torch.cat(quantized_splits, dim=1)
+            else:
+                quantized_input = self.linear_quantize(input)
+                dequantized_input = self.linear_dequantize(quantized_input)
+                return dequantized_input
+
+
 class _quantize_global(torch.autograd.Function):
+    """
+        Custom autograd function for quantizing inputs, weights, and gradients for
+        global quantization in neural networks. This function supports forward and
+        backward passes with optional quantization modules for weights, activations,
+        and gradients.
+
+        Methods:
+            forward(ctx, X_3D, W, bias, w_qmodule, a_qmodule, g_qmodule):
+                Applies the forward pass with optional quantization for weights and activations.
+
+            backward(ctx, grad_output):
+                Computes the backward pass with optional quantization for gradients.
+
+        Notes:
+            - The input tensor is reshaped for matrix multiplication and then reshaped back to the original
+              dimensions after the operation.
+            - The `activation_grad_flag` in the gradient quantization module (`g_qmodule`) determines whether
+              to apply quantization to the gradient with respect to the input or weights.
+            - This code is modified from the bitsandbytes repository:
+              https://github.com/TimDettmers/bitsandbytes/blob/73d3e7b61307a7a8c05a8bab1be7a54d4ebd0156/bitsandbytes/nn/triton_based_modules.py#L69.
+        """
 
     @staticmethod
     def forward(ctx, X_3D, W, bias=None, w_qmodule=None, a_qmodule=None, g_qmodule=None):
@@ -295,35 +365,4 @@ class _quantize_global(torch.autograd.Function):
 
         return grad_X, grad_W, grad_bias, None, None, None
 
-@Quantizer.register("split_quant")
-class Split_Quantization(LinearQuantization):
-    def __init__(self, num_split: int = 1, **kwargs):
-        super().__init__(**kwargs)
-        self.num_split = num_split
-
-    @staticmethod
-    def split_tensor_columns(input, num_split):
-        cols_per_split = input.size(1) // num_split
-        split_tensors = []
-        for i in range(num_split):
-            start_index = i * cols_per_split
-            end_index = (i + 1) * cols_per_split if i < num_split - 1 else input.size(1)
-            split_tensor = input[:, start_index:end_index]
-            split_tensors.append(split_tensor)
-        return split_tensors
-
-    def forward(self, input: torch.tensor):
-        assert input.ndim == 2
-        if self.N_bits >= 32:
-            return input
-        else:
-            if self.num_split > 1:
-                splits = self.split_tensor_columns(input, self.num_split)
-                quantized_splits = [self.linear_dequantize(self.linear_quantize(_)) for _ in splits]
-
-                return torch.cat(quantized_splits, dim=1)
-            else:
-                quantized_input = self.linear_quantize(input)
-                dequantized_input = self.linear_dequantize(quantized_input)
-                return dequantized_input
 
