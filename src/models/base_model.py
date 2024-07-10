@@ -46,7 +46,6 @@ def construct_quant_layer(weight_quantize_module: Quantizer, act_quantize_module
         wq_module = None
     else:
         wq_module = weight_quantize_module.construct()
-        wq_module._init_q_params(layer.weight)
     if act_quantize_module is None:
         act_module = None
     else:
@@ -70,16 +69,6 @@ def construct_quant_layer(weight_quantize_module: Quantizer, act_quantize_module
     else:
         raise NotImplementedError
 
-
-def dequant_model(model):
-    for name, m in model.named_modules():
-        if isinstance(m, Quantized_Linear):
-            if m.weight_quantize_module is not None:
-                m.weight_quantize_module.N_bits = 32
-            if m.act_quantize_module is not None:
-                m.act_quantize_module.N_bits = 32
-            if m.grad_quantize_module is not None:
-                m.grad_quantize_module.N_bits = 32
 
 class Base_Model(Registrable):
     def __init__(self, weight_quantize_module: Lazy[Quantizer], act_quantize_module: Lazy[Quantizer],

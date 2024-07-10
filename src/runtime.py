@@ -213,7 +213,7 @@ class Runtime(FromParams):
         else:
             self.optimizer = None
 
-    def evaluate(self, chk: int = None, seeds=[42]):
+    def evaluate(self, chk: int = None):
 
         from transformers.utils import WEIGHTS_NAME
         if chk is None:
@@ -228,17 +228,9 @@ class Runtime(FromParams):
         self.model = accelerator.prepare_model(self.model)
         self.model.eval()
 
-        acc = []
-        for seed in seeds:
-            self.set_seed(seed)
-            result = self.evaluation_task.evaluate(docs=self.evaluation_task.validation_docs(),
-                                                   lm=self.model,
-                                                   tokenizer=self.dataset.tokenizer,
-                                                   )
-            acc.append(result['minor']['acc'])
-
-            print(f'{self.evaluation_task.TASK_NAME}=====> \n{result}')
-
-        print(f'Accuracy: {np.array(acc).mean().round(3)} +- {np.array(acc).std().round(3)}')
-        return {self.evaluation_task.TASK_NAME: {'mean': np.array(acc).mean(), 'std': np.array(acc).std()}}
-
+        result = self.evaluation_task.evaluate(docs=self.evaluation_task.validation_docs(),
+                                               lm=self.model,
+                                               tokenizer=self.dataset.tokenizer,
+                                               )
+        print(f'{self.evaluation_task.TASK_NAME}=====> \n{result}')
+        return result
