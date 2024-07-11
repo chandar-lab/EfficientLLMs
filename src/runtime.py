@@ -24,11 +24,19 @@ from accelerate import Accelerator
 logger = logging.getLogger(__name__)
 
 class Runtime(FromParams):
-    def __init__(self, seed: int, _project_name: str, _entity: str, model: Lazy[Base_Model],
+    def __init__(self,
+                 model: Lazy[Base_Model],
                  evaluation_task: Lazy[HFTask],
-                 train_args: Lazy[MyTrainingArguments], dataset: Lazy[Dataset], optimizer: Lazy[Base_Optimizer],
-                 _save_path: str = './save', _wandb_logs: bool = False,
-                 exp_name: str = None, _config_copy: Dict[str, Any] = None):
+                 train_args: Lazy[MyTrainingArguments],
+                 dataset: Lazy[Dataset],
+                 optimizer: Lazy[Base_Optimizer],
+                 seed: int,
+                 exp_name: str,
+                 _project_name: str,
+                 _entity: str,
+                 _wandb_logs: bool = False,
+                 _save_path: str = './save',
+                 _config_copy: Dict[str, Any] = None):
         # setup model
         self.model = model.construct()
         self.model.to(self.model.device)
@@ -151,7 +159,7 @@ class Runtime(FromParams):
             self.trainer._save(os.path.join(self.save_path, self.exp_name), state_dict=cpu_state_dict)  # noqa
 
     def load_and_tokenize_dataset(self):
-        tokenized_datasets = self.dataset.creat_tokenized_datasets()
+        tokenized_datasets = self.dataset.create_tokenized_datasets()
         print(tokenized_datasets)
 
     @staticmethod

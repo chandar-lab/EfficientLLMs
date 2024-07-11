@@ -1,8 +1,6 @@
 import copy
-import logging
-
 from runtime import Runtime
-from common import Params, load_configs, creat_unique_experiment_name
+from common import Params, load_and_create_experiment_name
 import fire
 
 
@@ -10,10 +8,9 @@ class EntryPoint(object):
     experiment = None
     configs = None
 
-    def __init__(self, configs: str = "../configs/example.jsonnet"):
+    def __init__(self, configs: str = "../configs/gpt2_w8a8g8_per_token.jsonnet"):
 
-        _config = load_configs(configs)
-        exp_name = creat_unique_experiment_name(_config)
+        _config, exp_name = load_and_create_experiment_name(configs)
         _config_copy = copy.deepcopy(_config)
         self.experiment = Runtime.from_params(Params(_config), exp_name=exp_name, _config_copy=_config_copy)
 

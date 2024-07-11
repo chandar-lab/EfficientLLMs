@@ -1,10 +1,9 @@
-local base = (import 'act_base.jsonnet');
+local base = (import 'base.jsonnet');
 
 base + {
-    act_quantizer+:{
+    quantizer+:{
         N_bits: 4,
         get_scales+:{
-            symmetric: false,
             type: 'per-row',
         }
     },

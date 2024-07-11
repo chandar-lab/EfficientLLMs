@@ -23,7 +23,7 @@ fi
 mkdir -p $WORK_DIR
 
 # Load modules
-#module load gcc/9.3.0
+module load gcc/9.3.0
 module load python/3.8
 module load cuda/11.8
 
@@ -32,31 +32,14 @@ python -m venv "$TMP_PYENV"
 source "$TMP_PYENV/bin/activate"
 pip install --upgrade pip
 
-# download and compile python dependencies
-pip uninstall -y ninja && pip install ninja
+# Install dependencies from requirements.txt
+pip install -r requirements.txt
+
+# Note: Ensure that the installed PyTorch version supports CUDA 11.8
 pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu118
-pip install 'jsonlines==3.0.0'
-pip install 'jsonnet==0.18.0'
-pip install 'packaging==23.2'
-pip install 'overrides==6.1.0'
-pip install 'fire==0.4.0'
-pip install 'sentencepiece==0.1.96'
-pip install 'nltk==3.6.7'
-pip install 'base58==2.1.1'
-pip install 'datasets==2.14.5'
-pip install 'transformers==4.34'
-pip install 'wandb==0.15.12'
-pip install 'dill==0.3.4'
-pip install 'scipy==1.8.0'
-pip install 'matplotlib==3.7.0'
-pip install 'accelerate==0.23.0'
-pip install 'tiktoken==0.5.1'
-pip install 'rouge_score>=0.1.2'
-pip install 'tabulate==0.9.0'
-pip install 'sacremoses==0.1.1'
-pip install 'wheel==0.42.0'
-pip install 'setuptools==41.2.0'
-pip install 'py-cpuinfo==9.0.0'
+
+# Note: Ensure that ninja is uninstalled and reinstalled to avoid conflicts
+pip uninstall -y ninja && pip install ninja
 
 # Clone and install flash-attention v2
 NV_CC="8.0;8.6" # flash-attention-v2 and exllama_kernels are anyway limited to CC of 8.0+

@@ -1,8 +1,8 @@
-local base = (import 'act_base.jsonnet');
+local base = (import 'base.jsonnet');
 
 base + {
-    act_quantizer+:{
-        N_bits: 4,
+    quantizer+:{
+        N_bits: 8,
         get_scales+:{
             type: 'per-tensor',
         }

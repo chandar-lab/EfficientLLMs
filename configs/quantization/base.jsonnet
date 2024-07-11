@@ -1,5 +1,5 @@
 {
-    weight_quantizer: {
+    quantizer: {
         type: 'linear',
         signed: true,
         get_scales:{

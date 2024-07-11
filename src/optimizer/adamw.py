@@ -12,9 +12,7 @@ from torch.optim.optimizer import (Optimizer, _use_grad_for_differentiable, _get
                         _stack_if_compiling, _capturable_doc, _differentiable_doc, _foreach_doc,
                         _fused_doc, _maximize_doc, _default_to_fused_or_foreach)
 
-# from torch.optim.optimizer ParamsT
 ParamsT: TypeAlias = Union[Iterable[torch.Tensor], Iterable[Dict[str, Any]]]
-# from torch.optim.optimizer _view_as_real
 def _view_as_real(params, *state_and_grads):
     for i, p in enumerate(params):
         if torch.is_complex(p):
@@ -22,7 +20,6 @@ def _view_as_real(params, *state_and_grads):
             for s in state_and_grads:
                 s[i] = torch.view_as_real(s[i])
 
-# from torch.utils._foreach_utils import _get_fused_kernels_supported_devices
 def _get_fused_kernels_supported_devices() -> List[str]:
     r"""Return the device type list that supports fused kernels in optimizer."""
     return ["cuda", "xpu", torch._C._get_privateuse1_backend_name()]
