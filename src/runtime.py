@@ -1,6 +1,4 @@
-import copy
 import os
-import sys
 import random
 import numpy as np
 import torch
@@ -73,7 +71,6 @@ class Runtime(FromParams):
 
         # setup dataset
         tokenized_datasets = self.dataset.load_tokenized_dataset()
-        # tokenized_datasets = {'train': None, 'validation':None}
 
         # setup trainer
         self._creat_optimizer(model=self.model)

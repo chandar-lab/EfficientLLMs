@@ -27,11 +27,11 @@ pip install -r requirements.txt
 
 Experiments were conducted using the OpenWebText dataset from [HuggingFace](https://huggingface.co/datasets/Skylion007/openwebtext), following a set of training configurations similar to those in [nanoGPT](https://github.com/karpathy/nanoGPT). These experiments were run on 4xA100 80G GPUs.
 
-### Prepare dataset 
+### Preparing dataset 
 
 To download and tokenize the dataset into your `$HF_HOME` directory, run:
 ```
-python src/main.py --configs 'configs/gpt2_baseline.jsonnet' load_and_tokenize_datase
+python src/main.py --configs 'configs/gpt2_baseline.jsonnet' load_and_tokenize_dataset
 ```
 
 ### Training
