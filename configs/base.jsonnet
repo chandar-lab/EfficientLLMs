@@ -6,5 +6,5 @@
   _entity: 'efficient_llm',
   _save_path: './save',
   _wandb_logs: true,
-  _unique_name: false,
+  _unique_name: true,
 }
