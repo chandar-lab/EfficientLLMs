@@ -96,6 +96,7 @@ def load_and_create_experiment_name(config_files_names: str) -> (Dict[str, Any],
     # Generate a unique hash for the experiment name
     unrolled_json = json.dumps(unrolled_config, sort_keys=True)
     hash_name = hashlib.md5(unrolled_json.encode()).hexdigest()[:8]
-    exp_name = f"{config_names}_{hash_name}" if config['_unique_name'] else config_names
+    _unique_name = config.pop('_unique_name', False)
+    exp_name = f"{config_names}_{hash_name}" if _unique_name else config_names
 
     return config, exp_name

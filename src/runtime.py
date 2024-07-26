@@ -37,7 +37,7 @@ class Runtime(FromParams):
                  _config_copy: Dict[str, Any] = None):
         # setup model
         self.model = model.construct()
-        self.model.to(self.model.device)
+        # self.model.to(self.model.device)
         self.train_args = train_args
         self.trainer = None
         self.dataset = dataset
