@@ -17,4 +17,4 @@ module load cuda/11.8
 module load libffi
 source ../ENV/bin/activate
 
-torchrun --nproc_per_node=4 src/main.py --configs 'configs/llama.jsonnet' train
+torchrun --nproc_per_node=4 src/main.py --configs 'configs/llama_baseline.jsonnet' train
