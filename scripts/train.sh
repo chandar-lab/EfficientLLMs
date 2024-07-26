@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=gpt2
+#SBATCH --job-name=llama-w8a8
 #SBATCH --time=0-03:00
 
 #SBATCH --partition=short-unkillable    # ask for unkillable job
@@ -17,4 +17,4 @@ module load cuda/11.8
 module load libffi
 source ../ENV/bin/activate
 
-torchrun --nproc_per_node=4 src/main.py --configs 'configs/llama.jsonnet' train
+torchrun --nproc_per_node=4 src/main.py --configs 'configs/llama_w8a8_per_token.jsonnet' train

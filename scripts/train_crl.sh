@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=llama-w8
+#SBATCH --job-name=llama-w8a8g8
 #SBATCH --time=3-00:00
 
 #SBATCH --partition=lab-chandar
@@ -17,4 +17,4 @@ module load cuda/11.8
 module load libffi
 source ../ENV/bin/activate
 
-torchrun --nproc_per_node=4 src/main.py --configs 'configs/llama_baseline.jsonnet' train
+torchrun --nproc_per_node=4 src/main.py --configs 'configs/llama_w8a8g8_per_token.jsonnet' train
