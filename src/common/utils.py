@@ -85,7 +85,7 @@ def load_and_create_experiment_name(config_files_names: str) -> (Dict[str, Any],
         Tuple[Dict[str, Any], str]: The output dictionary containing experiment configurations and the unique experiment name.
     """
     # Extract and concatenate the base names without extensions
-    config_names = '_'.join([os.path.splitext(os.path.basename(f.strip()))[0] for f in config_files_names.split(',')])
+    config_names = '_'.join([os.path.splitext(os.path.basename(f.strip()))[0] for f in config_files_names.split(',') if 'evaluation_task' not in f])
 
     # Load and process the configurations
     config = load_configs(config_files_names)

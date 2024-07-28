@@ -80,7 +80,7 @@ class Lambada(HFTask):
             if label in predict:
                 correct += 1
 
-        acc = correct / len(self.raw_datasets)
+        acc = correct / docs.num_rows
         return {
             "major": acc,
             "minor": {"acc": acc},
