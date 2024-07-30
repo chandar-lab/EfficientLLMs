@@ -13,4 +13,4 @@ module load cuda/11.8
 module load libffi
 source ../ENV/bin/activate
 
-python src/main.py --configs 'configs/gpt2_baseline.jsonnet' load_and_tokenize_dataset
+python src/main.py --configs 'configs/llama_baseline.jsonnet' load_and_tokenize_dataset

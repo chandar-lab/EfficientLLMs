@@ -1,5 +1,5 @@
 local baseline_config = (import 'gpt2_baseline.jsonnet');
-local quantization_config = (import 'quantization/8bit_sym_per_token.jsonnet') {
+local quantization_config = (import 'quantization/8bit_sym_per_row.jsonnet') {
   quantizer+: {
     get_scales +: {
         minimum_range: 1e-9,

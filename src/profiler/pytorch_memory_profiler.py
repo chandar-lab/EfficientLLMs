@@ -1,17 +1,16 @@
 # modify code from: https://pytorch.org/blog/understanding-gpu-memory-1/?utm_content=275432243&utm_medium=social&utm_source=twitter&hss_channel=tw-776585502606721024
 
-import os
 import logging
+import os
 import socket
-import torch
-import pandas as pd
 from datetime import datetime
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch
 from torch.profiler._memory_profiler import MemoryProfile, MemoryProfileTimeline
 from torch.profiler._memory_profiler import _CATEGORY_TO_COLORS, _CATEGORY_TO_INDEX
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch
-from torch.autograd.profiler import record_function
 
 MB_scale = 1024 * 1024
 GB_scale = 1024 * 1024 * 1024
@@ -31,29 +30,6 @@ TIME_FORMAT_STR: str = "%b_%d_%H_%M_%S"
 
 def rand_like(input: torch.tensor):
     return torch.randn_like(input.float()).to(input.dtype)
-
-
-def set_plot_style(
-        fsize: int = 14,
-        tsize: int = 14,
-        tdir: str = 'in',
-        major: float = 1.0,
-        minor: float = 1.0,
-        style: str = 'default',
-        use_latex_format: bool = False,
-        linewidth: float = 2.0,
-):
-    plt.style.use(style)
-    plt.rcParams['text.usetex'] = use_latex_format
-    plt.rcParams['font.size'] = fsize
-    plt.rcParams['legend.fontsize'] = tsize
-    plt.rcParams['xtick.direction'] = tdir
-    plt.rcParams['ytick.direction'] = tdir
-    plt.rcParams['xtick.major.size'] = major
-    plt.rcParams['xtick.minor.size'] = minor
-    plt.rcParams['ytick.major.size'] = major
-    plt.rcParams['ytick.minor.size'] = minor
-    plt.rcParams['lines.linewidth'] = linewidth
 
 
 def start_record_memory_history() -> None:
@@ -520,7 +496,6 @@ def export_memory_timeline(prof, path, figsize=(20, 12), title=None):
     all_memory_result.to_csv(save_path)
 
     # Plot memory timeline as stacked data
-    set_plot_style()
     fig = plt.figure(figsize=figsize)
     axes = fig.gca()
     for category, color in _CATEGORY_TO_COLORS.items():

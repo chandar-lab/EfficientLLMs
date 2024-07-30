@@ -37,7 +37,7 @@ class Runtime(FromParams):
                  _config_copy: Dict[str, Any] = None):
         # setup model
         self.model = model.construct()
-        self.model.to(self.model.device)
+        # self.model.to(self.model.device)
         self.train_args = train_args
         self.trainer = None
         self.dataset = dataset
@@ -225,7 +225,7 @@ class Runtime(FromParams):
             # load final checkpoint
             checkpoint_path = os.path.join(self.output_dir, WEIGHTS_NAME)
         else:
-            checkpoint_path = os.path.join(self.output_dir, f"checkpoint-{chk}", WEIGHTS_NAME)
+            checkpoint_path = os.path.join(self.output_dir, f"spec-checkpoint-{chk}", WEIGHTS_NAME)
         self.model.load_state_dict(torch.load(checkpoint_path))
         print(f"load checkpoint from: {checkpoint_path}")
 

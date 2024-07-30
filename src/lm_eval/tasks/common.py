@@ -73,7 +73,10 @@ def yesno(x):
 def compute_perplexity(model, tokenizer, raw_dataset, stride):
     key_name = next(iter(raw_dataset.features))
     encodings = tokenizer("\n\n".join(raw_dataset[key_name]), return_tensors="pt")
-    max_length = model.config.n_positions
+    if model.config.n_positions > 0:
+        max_length = model.config.n_positions
+    else:
+        max_length = 1024
     seq_len = encodings.input_ids.size(1)
 
     nlls = []

@@ -49,7 +49,10 @@ class OpenWebText_HF(Dataset):
             "add_prefix_space": True,
         }
         tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name, **tokenizer_kwargs)
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+        if "Llama" in self.tokenizer_name:
+            tokenizer.pad_token = tokenizer.eos_token
+        else:
+            tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         self.tokenizer = tokenizer
         self.save_directory = os.path.join(os.environ["HF_HOME"], f'datasets/openwebtext/tokenized_{self.tokenizer_name.replace("/", "-")}')
 
