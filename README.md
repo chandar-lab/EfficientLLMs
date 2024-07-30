@@ -49,5 +49,13 @@ To evaluate the model's performance on a selected task, using the same configura
 python src/main.py --configs 'configs/gpt2_baseline.jsonnet, configs/evaluation_task/hellaswag.jsonnet' evaluate
 ```
 
-
 ## Citation
+If you use this code for your research, please consider citing our paper:
+```setup
+@article{chitsaz2024exploring,
+  title={Exploring Quantization for Efficient Pre-Training of Transformer Language Models},
+  author={Chitsaz, Kamran and Fournier, Quentin and Mordido, Gon{\c{c}}alo and Chandar, Sarath},
+  journal={arXiv preprint arXiv:2407.11722},
+  year={2024}
+}
+```
