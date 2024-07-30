@@ -11,6 +11,11 @@ try:
 except ImportError:
     from transformers.models.gpt2 import GPT2LMHeadModel as GPTLMHeadModel
 
+try:
+    from flash_attn.ops.triton.layer_norm import layer_norm_fn, RMSNorm
+except ImportError:
+    layer_norm_fn, RMSNorm = None, None
+
 from pytorch_memory_profiler import forward_benchmark, forward_backward_benchmark, full_benchmark, activation_hook, \
     GB_scale, forward_backward_benchmark_data, forward_benchmark_data, full_benchmark_data
 
@@ -121,10 +126,6 @@ class Warpper(GPTLMHeadModel):
 
         lm_logits = self.lm_head(hidden_states)
 
-        # During inference, we want the full logit for sampling
-        if isinstance(self.lm_head, ColumnParallelLinear) and inference_params is not None:
-            lm_logits, _ = all_gather_raw(lm_logits, self.lm_head.process_group)
-            lm_logits = rearrange(lm_logits, "(n b) ... d -> b ... (n d)", b=b)
         CausalLMOutput = namedtuple("CausalLMOutput", ["logits"])
         return CausalLMOutput(logits=lm_logits)
 

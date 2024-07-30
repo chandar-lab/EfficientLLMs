@@ -1,16 +1,8 @@
-import torch
-import torch.nn as nn
-import gc
-import pandas as pd
-import torch
-from torch.optim import AdamW
-import torch.optim.lr_scheduler as lr_scheduler
-from torch.nn import CrossEntropyLoss
-from flash_attn.models.gpt import GPTLMHeadModel
-from transformers import GPT2Config, GPT2LMHeadModel
 import argparse
-import os
-from flash_attn.modules.mha import MHA
+
+import torch
+from torch.nn import CrossEntropyLoss
+from transformers import GPT2Config, GPT2LMHeadModel
 
 
 def args_parser():
@@ -102,32 +94,6 @@ def forward_backward_benchmark(
 # report can be gpumemtimesum, gpumemsizesum, gpukernsum
 if __name__ == "__main__":
     assert torch.cuda.is_available()
-    # toy example
-    # batch_size = 8
-    # num_training_steps = 3
-    # device = torch.device('cuda')
-    # model = nn.Sequential(
-    #     nn.Linear(768, 2304),
-    #     nn.ReLU(),
-    #     nn.Linear(2304, 768),
-    # )
-    # # criterion = torch.nn.CrossEntropyLoss()
-    # criterion = torch.nn.MSELoss()
-    # optimizer = AdamW(model.parameters(), lr=1e-4, weight_decay=0.01)
-    # scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=0)
-    # model = model.to(device)
-    # model.train()
-    # torch.cuda.cudart().cudaProfilerStart()
-    # for step in range(num_training_steps):
-    #     x = torch.randn(batch_size, 1024, 768).to(device)
-    #     label = torch.randn(batch_size, 1024, 768).to(device)
-    #     output = model(x)
-    #     loss = criterion(output, label)
-    #     optimizer.zero_grad()
-    #     loss.backward()
-    #     optimizer.step()
-    #     scheduler.step()
-    # torch.cuda.cudart().cudaProfilerStop()
 
     # # ALL GPT2 forward and backward
     # args = args_parser()
@@ -153,24 +119,6 @@ if __name__ == "__main__":
     #     label = torch.randint(0, 50257, (args.batch_size, args.seq_len)).to('cuda')
     #     loss = full_model_forward_backward(x, label, model)
     #     loss.backward()
-    # torch.cuda.cudart().cudaProfilerStop()
-
-    # # Multi head attention forward and backward
-    # args = args_parser()
-    # mha_module = MHA(embed_dim=768,
-    #              num_heads=12,
-    #              num_heads_kv=12,
-    #              dropout=0.1,
-    #              causal=True,
-    #              layer_idx=0,
-    #              use_flash_attn=True,
-    #              softmax_scale=0.125,
-    #             ).cuda()
-    # x = torch.randn(args.batch_size, args.seq_len, 768).to('cuda').requires_grad_(True).to(torch.bfloat16)
-    # if args.bf16:
-    #     mha_module = mha_module.to(torch.bfloat16)
-    # torch.cuda.cudart().cudaProfilerStart()
-    # forward_backward_benchmark(mha_module, x, repeats=args.repeats, amp=args.amp)
     # torch.cuda.cudart().cudaProfilerStop()
 
     # Attention Block
@@ -208,15 +156,3 @@ if __name__ == "__main__":
     forward_backward_benchmark(attention_block, x, repeats=args.repeats, amp=args.amp)
     torch.cuda.cudart().cudaProfilerStop()
 
-    # # Linear layer
-    # args = args_parser()
-    # m_linear = torch.nn.Linear(768, 2304).cuda()
-    # x = torch.randn(args.batch_size, args.seq_len, 768).to('cuda').requires_grad_(True)
-    # if args.amp or args.bf16:
-    #     x = x.to(torch.bfloat16)
-    # if args.bf16:
-    #     m_linear = m_linear.to(torch.bfloat16)
-    # if args.forward:
-    #     forward_benchmark(m_linear, x, repeats=args.repeats, amp=args.amp)
-    # else:
-    #     forward_backward_benchmark(m_linear, x, repeats=args.repeats, amp=args.amp)
